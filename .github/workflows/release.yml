@@ -73,7 +73,7 @@ jobs:
         run: npm ci
 
       - name: Build and publish release
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -86,4 +86,3 @@ jobs:
           uploadUpdaterJson: false
           tauriScript: npm run tauri
           releaseAssetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
-
