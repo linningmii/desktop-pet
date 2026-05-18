@@ -1,15 +1,28 @@
 # Desktop Pet
 
-A cross-platform desktop pet. The current primary implementation is a Tauri v2 native app, with the earlier Electron prototype kept in the repository as a fallback/reference.
+A cross-platform desktop pet built with Tauri v2.
 
-## Current Status
+## Status
+
+Current version: `0.2.0-alpha.1`
 
 - Windows is the main tested platform.
-- macOS structure is in place through Tauri, but still needs real-device verification.
-- The pet lives in the tray/menu bar and can only be exited from there.
+- macOS support is planned through Tauri, but still needs real-device verification.
+- The pet lives in the system tray/menu bar and can only be exited from there.
 - It walks around the desktop, avoids the cursor, supports idle/walk sprite frames, and exposes size/speed/activity controls from the tray menu.
 
-## Native Tauri App
+This is an alpha because the core behavior is usable, but cross-platform validation, update/migration behavior, and release automation are still in progress.
+
+## Project Layout
+
+```text
+app/          Frontend view and runtime sprite assets
+src-tauri/    Rust/Tauri application shell and movement logic
+```
+
+The old Electron prototype has been removed from the tracked source.
+
+## Development
 
 Install dependencies:
 
@@ -17,46 +30,40 @@ Install dependencies:
 npm install
 ```
 
-Run the native app in development:
+Run locally:
 
 ```powershell
-npm run native:dev
+npm run dev
 ```
 
-Build the native Windows installer:
+Check the code:
 
 ```powershell
-npm run native:build
+npm run check
 ```
 
-The Tauri installer is generated under:
+Build the Windows installer:
+
+```powershell
+npm run build
+```
+
+The installer is generated under:
 
 ```text
 src-tauri/target/release/bundle/nsis/
 ```
-
-## Electron Prototype
-
-The Electron prototype is still available:
-
-```powershell
-npm start
-npm run dist:win
-```
-
-It is useful for comparing behavior, but the Tauri version is the intended path because it avoids bundling Chromium and produces a much smaller installer.
 
 ## Assets
 
 Runtime sprites are kept in:
 
 ```text
-assets/pet/
-native-ui/assets/pet/
+app/assets/pet/
 ```
 
-The raw motion source frames are intentionally ignored from git. Commit only the processed runtime frames unless the raw sources are explicitly needed.
+Raw source frames and local build outputs are intentionally ignored from git. Commit only the processed runtime frames unless the raw sources are explicitly needed.
 
 ## Notes
 
-Do not commit local build outputs, installers, signing certificates, or `.env` files. The `.gitignore` excludes the usual generated artifacts and private key/certificate formats.
+Do not commit local build outputs, installers, signing certificates, or `.env` files. The `.gitignore` excludes generated artifacts and private key/certificate formats.

@@ -1,10 +1,10 @@
 node_modules/
 dist/
 out/
+/assets/
 src-tauri/target/
 src-tauri/gen/
-native-ui/assets/pet/walk/raw/
-assets/pet/walk/raw/
+app/assets/pet/walk/raw/
 *.log
 .env
 .env.*
