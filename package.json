@@ -1,0 +1,60 @@
+{
+  "name": "desktop-pet",
+  "version": "0.1.0",
+  "description": "A cross-platform desktop pet for Windows tray and macOS menu bar.",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer.js",
+    "dist:win": "electron-builder --win nsis",
+    "native:dev": "tauri dev",
+    "native:build": "tauri build",
+    "postinstall": "patch-package"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
+    "electron": "^30.5.1",
+    "electron-builder": "26.8.1",
+    "patch-package": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.desktoppet.app",
+    "productName": "Desktop Pet",
+    "asar": true,
+    "toolsets": {
+      "winCodeSign": "1.1.0"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/app-icon.ico",
+      "assets/app-icon.png",
+      "assets/tray-icon.png",
+      "assets/pet/manifest.json",
+      "assets/pet/idle/**/*",
+      "assets/pet/walk/walk-*.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/app-icon.ico",
+      "signExts": [
+        "!.exe"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Desktop Pet",
+      "deleteAppDataOnUninstall": true
+    }
+  }
+}

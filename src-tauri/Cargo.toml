@@ -1,0 +1,16 @@
+[package]
+name = "desktop-pet-native"
+version = "0.2.0"
+description = "Native cross-platform desktop pet"
+authors = ["Desktop Pet"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.6.1", features = [] }
+
+[dependencies]
+device_query = "4.0.1"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.11.2", features = ["tray-icon", "image-png"] }
+

@@ -1,0 +1,143 @@
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pet {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  animation: breathe 1.7s ease-in-out infinite;
+}
+
+.pet-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+  transform-origin: 50% 82%;
+  pointer-events: none;
+}
+
+.pet[data-facing="left"] .pet-frame,
+.pet.placeholder[data-facing="left"] .body {
+  transform: scaleX(-1);
+}
+
+.pet.moving .pet-frame {
+  animation: bob var(--bob-speed, 0.7s) ease-in-out infinite;
+}
+
+.pet.placeholder .pet-frame {
+  display: none;
+}
+
+.pet:not(.placeholder) .body,
+.pet:not(.placeholder) .shadow {
+  display: none;
+}
+
+.shadow {
+  position: absolute;
+  left: 22%;
+  right: 20%;
+  bottom: 10%;
+  height: 10%;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+  filter: blur(3px);
+}
+
+.body {
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  bottom: 16%;
+  height: 62%;
+  border: 3px solid rgba(85, 44, 10, 0.62);
+  border-radius: 46% 46% 42% 42%;
+  background:
+    radial-gradient(circle at 68% 26%, rgba(255, 255, 255, 0.72) 0 9px, transparent 10px),
+    linear-gradient(145deg, #ffd86b 0%, #f6a72d 74%);
+  box-shadow: inset -8px -10px 0 rgba(117, 54, 8, 0.14);
+}
+
+.body::before,
+.body::after {
+  content: "";
+  position: absolute;
+  top: -16%;
+  width: 25%;
+  height: 28%;
+  border: 3px solid rgba(85, 44, 10, 0.62);
+  background: #f6a72d;
+}
+
+.body::before {
+  left: 8%;
+  border-radius: 10px 24px 12px 24px;
+  transform: rotate(-20deg);
+}
+
+.body::after {
+  right: 8%;
+  border-radius: 24px 10px 24px 12px;
+  transform: rotate(20deg);
+}
+
+.face {
+  position: absolute;
+  inset: 28% 18% 16%;
+}
+
+.eye {
+  position: absolute;
+  top: 8%;
+  width: 18%;
+  height: 26%;
+  border-radius: 999px;
+  background: #2a1a10;
+}
+
+.eye-left {
+  left: 14%;
+}
+
+.eye-right {
+  right: 14%;
+}
+
+.mouth {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  width: 28%;
+  height: 16%;
+  border-bottom: 4px solid #2a1a10;
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%);
+}
+
+@keyframes bob {
+  50% {
+    translate: 0 -5%;
+  }
+}
+
+@keyframes breathe {
+  50% {
+    translate: 0 1%;
+  }
+}
+
