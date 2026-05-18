@@ -4,6 +4,7 @@
   "description": "A cross-platform desktop pet for Windows tray and macOS menu bar.",
   "private": true,
   "scripts": {
+    "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
     "check": "node --check app/pet.js && cargo check --manifest-path src-tauri/Cargo.toml"

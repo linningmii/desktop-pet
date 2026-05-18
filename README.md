@@ -54,6 +54,25 @@ The installer is generated under:
 src-tauri/target/release/bundle/nsis/
 ```
 
+## Release
+
+GitHub Actions builds and publishes releases from version tags.
+
+Create and push a tag that matches the app version:
+
+```powershell
+git tag v0.2.0-alpha.1
+git push origin v0.2.0-alpha.1
+```
+
+The workflow will:
+
+- run checks on Windows,
+- build the Tauri NSIS installer,
+- create a GitHub Release for the tag,
+- mark prerelease tags such as `v0.2.0-alpha.1` as prereleases,
+- upload the Windows installer as a release asset.
+
 ## Assets
 
 Runtime sprites are kept in:
