@@ -1,10 +1,14 @@
 # Desktop Pet
 
+[![Current release](https://img.shields.io/github/v/release/linningmii/desktop-pet?include_prereleases&label=current%20version)](https://github.com/linningmii/desktop-pet/releases)
+[![Build and Release](https://github.com/linningmii/desktop-pet/actions/workflows/release.yml/badge.svg)](https://github.com/linningmii/desktop-pet/actions/workflows/release.yml)
+[![Latest release date](https://img.shields.io/github/release-date-pre/linningmii/desktop-pet?label=latest%20release)](https://github.com/linningmii/desktop-pet/releases)
+[![Downloads](https://img.shields.io/github/downloads/linningmii/desktop-pet/total?label=downloads)](https://github.com/linningmii/desktop-pet/releases)
+[![Repo size](https://img.shields.io/github/repo-size/linningmii/desktop-pet)](https://github.com/linningmii/desktop-pet)
+
 A cross-platform desktop pet built with Tauri v2.
 
 ## Status
-
-Current version: `0.2.0-alpha.1`
 
 - Windows is the main tested platform.
 - macOS support is planned through Tauri, but still needs real-device verification.
@@ -61,8 +65,8 @@ GitHub Actions builds and publishes releases from version tags.
 Create and push a tag that matches the app version:
 
 ```powershell
-git tag v0.2.0-alpha.1
-git push origin v0.2.0-alpha.1
+git tag v<version>
+git push origin v<version>
 ```
 
 The workflow will:
