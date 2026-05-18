@@ -28,10 +28,23 @@ The old Electron prototype has been removed from the tracked source.
 
 ## Development
 
-Install dependencies:
+Prerequisites:
+
+- Node.js 24 or newer.
+- Rust and Cargo from [rustup](https://rustup.rs/).
+- Windows: Microsoft C++ Build Tools and WebView2 Runtime. See the [Tauri Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows).
+- macOS: Xcode Command Line Tools. macOS packaging still needs real-device verification.
+
+Install the Node-side development tools:
 
 ```powershell
 npm install
+```
+
+Verify Cargo is available:
+
+```powershell
+cargo --version
 ```
 
 Run locally:
