@@ -5,6 +5,7 @@ let manifest = { idle: {}, walk: [] };
 let walkFrameIndex = 0;
 let lastWalkFrameAt = 0;
 let currentIdleSrc = '';
+let currentIdleMood = '';
 
 function encodeAssetPath(path) {
   return path
@@ -13,14 +14,37 @@ function encodeAssetPath(path) {
     .join('/');
 }
 
-function normalizeFrames(files, folder) {
+function normalizeFrames(files) {
   if (!Array.isArray(files)) {
     return [];
   }
 
   return files
     .filter((file) => typeof file === 'string' && file.trim())
-    .map((file) => `assets/pet/${folder}/${encodeAssetPath(file)}`);
+    .map((file) => `assets/pet/${encodeAssetPath(file)}`);
+}
+
+function buildIdleManifest(idle) {
+  const moodPatterns = {
+    happy: '乐',
+    calm: '呆',
+    angry: '怒',
+    sorrow: '苦'
+  };
+
+  if (Array.isArray(idle)) {
+    const frames = normalizeFrames(idle);
+    return Object.fromEntries(
+      Object.entries(moodPatterns).map(([mood, pattern]) => {
+        const matched = frames.filter((frame) => decodeURIComponent(frame).includes(pattern));
+        return [mood, matched.length > 0 ? matched : frames];
+      })
+    );
+  }
+
+  return Object.fromEntries(
+    Object.entries(idle || {}).map(([mood, files]) => [mood, normalizeFrames(files)])
+  );
 }
 
 async function loadManifest() {
@@ -28,10 +52,8 @@ async function loadManifest() {
     const response = await fetch('assets/pet/manifest.json');
     const data = await response.json();
     manifest = {
-      idle: Object.fromEntries(
-        Object.entries(data.idle || {}).map(([mood, files]) => [mood, normalizeFrames(files, 'idle')])
-      ),
-      walk: normalizeFrames(data.walk || [], 'walk')
+      idle: buildIdleManifest(data.idle),
+      walk: normalizeFrames(data.walk || [])
     };
   } catch {
     manifest = { idle: {}, walk: [] };
@@ -70,12 +92,14 @@ function updateFrame(state) {
       lastWalkFrameAt = now;
     }
     currentIdleSrc = '';
+    currentIdleMood = '';
     setFrame(manifest.walk[walkFrameIndex]);
     return;
   }
 
-  if (!currentIdleSrc || state.idleShapeshift) {
+  if (!currentIdleSrc || currentIdleMood !== state.idleMood || state.idleShapeshift) {
     currentIdleSrc = pickIdleFrame(state.idleMood);
+    currentIdleMood = state.idleMood;
   }
   setFrame(currentIdleSrc);
 }
@@ -97,4 +121,3 @@ async function main() {
 }
 
 main();
-
