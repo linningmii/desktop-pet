@@ -1,7 +1,7 @@
 [package]
-name = "desktop-pet-native"
+name = "desktop-pet"
 version = "0.2.0"
-description = "Native cross-platform desktop pet"
+description = "Cross-platform desktop pet"
 authors = ["Desktop Pet"]
 edition = "2021"
 
@@ -13,4 +13,3 @@ device_query = "4.0.1"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2.11.2", features = ["tray-icon", "image-png"] }
-
