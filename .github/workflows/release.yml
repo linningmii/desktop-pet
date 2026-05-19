@@ -18,6 +18,8 @@ jobs:
   check:
     name: Check (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
+    environment:
+      name: Microsoft Foundry
     strategy:
       fail-fast: false
       matrix:
