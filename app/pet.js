@@ -1,6 +1,5 @@
 const pet = document.querySelector('#pet');
 const image = document.querySelector('#pet-frame');
-
 let manifest = { idle: {}, walk: [] };
 let walkFrameIndex = 0;
 let lastWalkFrameAt = 0;
@@ -97,9 +96,9 @@ function updateFrame(state) {
     return;
   }
 
-  if (!currentIdleSrc || currentIdleMood !== state.idleMood || state.idleShapeshift) {
-    currentIdleSrc = pickIdleFrame(state.idleMood);
-    currentIdleMood = state.idleMood;
+  if (!currentIdleSrc || currentIdleMood !== state.stoppedMood || state.stoppedShapeshift) {
+    currentIdleSrc = pickIdleFrame(state.stoppedMood);
+    currentIdleMood = state.stoppedMood;
   }
   setFrame(currentIdleSrc);
 }

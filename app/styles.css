@@ -19,6 +19,15 @@ body {
   animation: breathe 1.7s ease-in-out infinite;
 }
 
+.sprite {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 100vh;
+  height: 100vh;
+  transform: translateX(-50%);
+}
+
 .pet-frame {
   position: absolute;
   inset: 0;
@@ -141,3 +150,80 @@ body {
   }
 }
 
+.speech-page {
+  display: grid;
+  place-items: center;
+  padding: var(--speech-page-padding, 8px 10px);
+  box-sizing: border-box;
+}
+
+.speech-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.speech-bubble {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 3px 6px rgba(30, 38, 52, 0.14));
+}
+
+.speech-bubble-path {
+  fill: rgba(255, 255, 255, 0.94);
+  stroke: rgba(30, 38, 52, 0.72);
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.speech {
+  position: absolute;
+  left: var(--speech-content-left, 12px);
+  right: var(--speech-content-right, 12px);
+  top: var(--speech-content-top, 9px);
+  bottom: var(--speech-content-bottom, 13px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  color: #1e2634;
+  font: 700 var(--speech-font-size, 13px)/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.speech-page[data-scale="small"] {
+  --speech-page-padding: 6px 8px;
+  --speech-padding: 6px 8px;
+  --speech-min-height: 24px;
+  --speech-font-size: 12px;
+  --speech-tail-size: 11px;
+}
+
+.speech-page[data-scale="medium"] {
+  --speech-page-padding: 7px 9px;
+  --speech-padding: 7px 10px;
+  --speech-min-height: 28px;
+  --speech-font-size: 13px;
+  --speech-tail-size: 13px;
+}
+
+.speech-page[data-scale="large"] {
+  --speech-page-padding: 8px 10px;
+  --speech-padding: 8px 11px;
+  --speech-min-height: 32px;
+  --speech-font-size: 14px;
+  --speech-tail-size: 15px;
+}
+
+.speech-page.talking .speech-frame {
+  opacity: 1;
+  transform: translateY(0);
+}
