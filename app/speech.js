@@ -45,8 +45,8 @@ function speechKeyForState(state) {
 function renderState(state) {
   document.body.classList.toggle('below', state.speechPlacement === 'below');
   document.body.classList.toggle('above', state.speechPlacement !== 'below');
-  document.body.classList.toggle('side-left', state.speechSide === 'left');
-  document.body.classList.toggle('side-right', state.speechSide !== 'left');
+  document.body.dataset.scale = state.speechScale || 'small';
+  document.body.style.setProperty('--speech-tail-left', `${state.speechTailPercent || 50}%`);
 
   const key = state.talkWhenStopped ? speechKeyForState(state) : '';
   if (!key) {

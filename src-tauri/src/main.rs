@@ -19,10 +19,8 @@ use tauri::{
 };
 
 const BASE_PET_SIZE: u32 = 150;
-const SPEECH_WINDOW_WIDTH: f64 = 220.0;
-const SPEECH_WINDOW_HEIGHT: f64 = 76.0;
-const SPEECH_GAP: f64 = 4.0;
-const SPEECH_FACING_OFFSET: f64 = 62.0;
+const SPEECH_TAIL_MIN_PERCENT: f64 = 12.0;
+const SPEECH_TAIL_MAX_PERCENT: f64 = 88.0;
 const TICK_MS: u64 = 33;
 const EDGE_PADDING: f64 = 8.0;
 const PATROL_SPEED: f64 = 2.8;
@@ -135,8 +133,10 @@ struct RendererState {
     talk_when_stopped: bool,
     #[serde(rename = "speechPlacement")]
     speech_placement: &'static str,
-    #[serde(rename = "speechSide")]
-    speech_side: &'static str,
+    #[serde(rename = "speechTailPercent")]
+    speech_tail_percent: f64,
+    #[serde(rename = "speechScale")]
+    speech_scale: &'static str,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -302,7 +302,7 @@ fn initialize_window(
     window.set_size(Size::Logical(pet_window_size(state.config.size)))?;
     window.set_position(Position::Logical(pet_window_position(&state)))?;
     let speech_layout = speech_layout(&state, bounds);
-    speech_window.set_size(Size::Logical(speech_window_size()))?;
+    speech_window.set_size(Size::Logical(speech_window_size(state.config.size)))?;
     speech_window.set_position(Position::Logical(speech_layout.position))?;
     window.show()?;
     speech_window.show()?;
@@ -323,7 +323,7 @@ fn create_speech_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
 
     WebviewWindowBuilder::new(app, "speech", WebviewUrl::App("speech.html".into()))
         .title("Desktop Pet Speech")
-        .inner_size(SPEECH_WINDOW_WIDTH, SPEECH_WINDOW_HEIGHT)
+        .inner_size(160.0, 58.0)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -443,11 +443,11 @@ fn start_motion_loop(
             let speech_layout = speech_layout(&state, bounds);
             let _ = window.set_size(Size::Logical(pet_window_size(state.config.size)));
             let _ = window.set_position(Position::Logical(pet_window_position(&state)));
-            let _ = speech_window.set_size(Size::Logical(speech_window_size()));
+            let _ = speech_window.set_size(Size::Logical(speech_window_size(state.config.size)));
             let _ = speech_window.set_position(Position::Logical(speech_layout.position));
             let _ = window.set_always_on_top(true);
             let _ = speech_window.set_always_on_top(true);
-            build_renderer_state(&state, speech_layout.placement, speech_layout.side)
+            build_renderer_state(&state, speech_layout.placement, speech_layout.tail_percent)
         };
 
         let _ = window.emit("pet-state", renderer_state.clone());
@@ -580,7 +580,7 @@ fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (f64, f64)) {
 fn build_renderer_state(
     state: &AppState,
     speech_placement: &'static str,
-    speech_side: &'static str,
+    speech_tail_percent: f64,
 ) -> RendererState {
     RendererState {
         facing: state.pet.facing,
@@ -599,7 +599,8 @@ fn build_renderer_state(
         language: language_name(state.config.language),
         talk_when_stopped: state.config.talk_when_stopped,
         speech_placement,
-        speech_side,
+        speech_tail_percent,
+        speech_scale: speech_scale_name(state.config.size),
     }
 }
 
@@ -845,40 +846,73 @@ fn pet_window_position(state: &AppState) -> LogicalPosition<f64> {
 struct SpeechLayout {
     position: LogicalPosition<f64>,
     placement: &'static str,
-    side: &'static str,
+    tail_percent: f64,
 }
 
-fn speech_window_size() -> LogicalSize<f64> {
-    LogicalSize {
-        width: SPEECH_WINDOW_WIDTH,
-        height: SPEECH_WINDOW_HEIGHT,
+fn speech_window_size(size: SizeProfile) -> LogicalSize<f64> {
+    speech_metrics(size).window_size
+}
+
+struct SpeechMetrics {
+    window_size: LogicalSize<f64>,
+    gap: f64,
+    facing_offset: f64,
+}
+
+fn speech_metrics(size: SizeProfile) -> SpeechMetrics {
+    match size {
+        SizeProfile::Small => SpeechMetrics {
+            window_size: LogicalSize {
+                width: 160.0,
+                height: 58.0,
+            },
+            gap: -2.0,
+            facing_offset: 24.0,
+        },
+        SizeProfile::Medium => SpeechMetrics {
+            window_size: LogicalSize {
+                width: 196.0,
+                height: 68.0,
+            },
+            gap: 0.0,
+            facing_offset: 42.0,
+        },
+        SizeProfile::Large => SpeechMetrics {
+            window_size: LogicalSize {
+                width: 236.0,
+                height: 82.0,
+            },
+            gap: 2.0,
+            facing_offset: 68.0,
+        },
     }
 }
 
 fn speech_layout(state: &AppState, bounds: Bounds) -> SpeechLayout {
     let pet_size = pet_size(state.config.size) as f64;
-    let side = if state.pet.facing == "left" {
-        "left"
+    let metrics = speech_metrics(state.config.size);
+    let speech_width = metrics.window_size.width;
+    let speech_height = metrics.window_size.height;
+    let facing_offset = if state.pet.facing == "right" {
+        metrics.facing_offset
     } else {
-        "right"
+        -metrics.facing_offset
     };
-    let facing_offset = if side == "right" {
-        SPEECH_FACING_OFFSET
-    } else {
-        -SPEECH_FACING_OFFSET
-    };
-    let preferred_x = state.pet.x + pet_size / 2.0 + facing_offset - SPEECH_WINDOW_WIDTH / 2.0;
+    let pet_center_x = state.pet.x + pet_size / 2.0;
+    let preferred_x = pet_center_x + facing_offset - speech_width / 2.0;
     let min_x = bounds.x + EDGE_PADDING;
-    let max_x = bounds.x + bounds.width - SPEECH_WINDOW_WIDTH - EDGE_PADDING;
+    let max_x = bounds.x + bounds.width - speech_width - EDGE_PADDING;
     let x = preferred_x.clamp(min_x, max_x);
-    let above_y = state.pet.y - SPEECH_WINDOW_HEIGHT - SPEECH_GAP;
-    let below_y = state.pet.y + pet_size + SPEECH_GAP;
+    let above_y = state.pet.y - speech_height - metrics.gap;
+    let below_y = state.pet.y + pet_size + metrics.gap;
+    let tail_percent = ((pet_center_x - x) / speech_width * 100.0)
+        .clamp(SPEECH_TAIL_MIN_PERCENT, SPEECH_TAIL_MAX_PERCENT);
 
     let (y, placement) = if above_y >= bounds.y + EDGE_PADDING {
         (above_y, "above")
     } else {
         (
-            below_y.min(bounds.y + bounds.height - SPEECH_WINDOW_HEIGHT - EDGE_PADDING),
+            below_y.min(bounds.y + bounds.height - speech_height - EDGE_PADDING),
             "below",
         )
     };
@@ -889,7 +923,7 @@ fn speech_layout(state: &AppState, bounds: Bounds) -> SpeechLayout {
             y: y.round(),
         },
         placement,
-        side,
+        tail_percent,
     }
 }
 
@@ -1070,6 +1104,14 @@ fn fallback_i18n_text(language: Language) -> I18nText {
             version: "Version".to_string(),
             quit: "Quit".to_string(),
         },
+    }
+}
+
+fn speech_scale_name(size: SizeProfile) -> &'static str {
+    match size {
+        SizeProfile::Small => "small",
+        SizeProfile::Medium => "medium",
+        SizeProfile::Large => "large",
     }
 }
 

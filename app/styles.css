@@ -153,7 +153,7 @@ body {
 .speech-page {
   display: grid;
   place-items: center;
-  padding: 8px 10px;
+  padding: var(--speech-page-padding, 8px 10px);
   box-sizing: border-box;
 }
 
@@ -161,14 +161,14 @@ body {
   position: relative;
   max-width: calc(100vw - 20px);
   max-height: calc(100vh - 16px);
-  min-height: 28px;
-  padding: 7px 10px;
+  min-height: var(--speech-min-height, 28px);
+  padding: var(--speech-padding, 7px 10px);
   box-sizing: border-box;
   border: 2px solid rgba(30, 38, 52, 0.72);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
   color: #1e2634;
-  font: 700 13px/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 700 var(--speech-font-size, 13px)/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-align: center;
   overflow-wrap: anywhere;
   box-shadow: 0 3px 10px rgba(30, 38, 52, 0.16);
@@ -181,28 +181,44 @@ body {
   content: "";
   position: absolute;
   left: var(--speech-tail-left, 50%);
-  width: 14px;
-  height: 14px;
+  width: var(--speech-tail-size, 14px);
+  height: var(--speech-tail-size, 14px);
   border-right: 2px solid rgba(30, 38, 52, 0.72);
   border-bottom: 2px solid rgba(30, 38, 52, 0.72);
   background: rgba(255, 255, 255, 0.94);
 }
 
-.speech-page.side-left {
-  --speech-tail-left: 76%;
+.speech-page[data-scale="small"] {
+  --speech-page-padding: 6px 8px;
+  --speech-padding: 6px 8px;
+  --speech-min-height: 24px;
+  --speech-font-size: 12px;
+  --speech-tail-size: 11px;
 }
 
-.speech-page.side-right {
-  --speech-tail-left: 24%;
+.speech-page[data-scale="medium"] {
+  --speech-page-padding: 7px 9px;
+  --speech-padding: 7px 10px;
+  --speech-min-height: 28px;
+  --speech-font-size: 13px;
+  --speech-tail-size: 13px;
+}
+
+.speech-page[data-scale="large"] {
+  --speech-page-padding: 8px 10px;
+  --speech-padding: 8px 11px;
+  --speech-min-height: 32px;
+  --speech-font-size: 14px;
+  --speech-tail-size: 15px;
 }
 
 .speech-page.above .speech::after {
-  bottom: -9px;
+  bottom: calc(var(--speech-tail-size, 14px) / -2 - 2px);
   transform: translateX(-50%) rotate(45deg);
 }
 
 .speech-page.below .speech::after {
-  top: -9px;
+  top: calc(var(--speech-tail-size, 14px) / -2 - 2px);
   transform: translateX(-50%) rotate(225deg);
 }
 
