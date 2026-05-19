@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -49,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test GitHub Models API
+      - name: Test GitHub Models release summary
         if: matrix.platform.name == 'macOS'
         shell: bash
         env:
@@ -57,48 +59,78 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > "$RUNNER_TEMP/github-models-smoke-test.json" <<'EOF'
-          {
-            "model": "openai/gpt-4o-mini",
-            "messages": [
+          previous_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [[ -n "$previous_tag" ]]; then
+            commit_range="$previous_tag..HEAD"
+          else
+            commit_range="HEAD~20..HEAD"
+          fi
+
+          git log \
+            --format='commit %h%nTitle: %s%nDescription:%n%b%n---END---' \
+            "$commit_range" > "$RUNNER_TEMP/release-commits-full.txt"
+          git log \
+            --format='commit %h%nTitle: %s%n---END---' \
+            "$commit_range" > "$RUNNER_TEMP/release-commits-title-only.txt"
+
+          commit_input="$RUNNER_TEMP/release-commits-full.txt"
+          if [[ "$(wc -c < "$commit_input")" -gt 24000 ]]; then
+            commit_input="$RUNNER_TEMP/release-commits-title-only.txt"
+          fi
+
+          node - "$commit_input" "$RUNNER_TEMP/github-models-summary-test.json" <<'NODE'
+          const fs = require('fs');
+          const [inputPath, outputPath] = process.argv.slice(2);
+          const commits = fs.readFileSync(inputPath, 'utf8').trim();
+          const payload = {
+            model: 'openai/gpt-4.1',
+            messages: [
               {
-                "role": "system",
-                "content": "Reply with exactly: ok"
+                role: 'system',
+                content: [
+                  'Write concise, user-facing release highlights for a desktop app.',
+                  'Focus only on product-visible changes: features, platform support, runtime behavior, visual assets, packaging outputs, and user-facing bug fixes.',
+                  'Do not mention project infrastructure, CI/CD, pipelines, GitHub Actions, internal refactors with no user-visible effect, dependency churn, or repository maintenance.',
+                  'If a refactor has no feature change, include it only when it affects product behavior, stability, or platform compatibility.',
+                  'Return Markdown with a "## Highlights" heading and 2-5 bullets. If there are no user-visible changes, say "No user-facing changes in this release."'
+                ].join(' ')
               },
               {
-                "role": "user",
-                "content": "Smoke test"
+                role: 'user',
+                content: `Generate release highlights from these commits:\n\n${commits}`
               }
             ],
-            "temperature": 0,
-            "max_tokens": 4
-          }
-          EOF
+            temperature: 0.2,
+            max_tokens: 500
+          };
+          fs.writeFileSync(outputPath, JSON.stringify(payload));
+          NODE
 
           http_code="$(curl -sS \
-            -o "$RUNNER_TEMP/github-models-smoke-test-response.json" \
+            -o "$RUNNER_TEMP/github-models-summary-test-response.json" \
             -w "%{http_code}" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Content-Type: application/json" \
             -X POST \
             https://models.github.ai/inference/chat/completions \
-            -d @"$RUNNER_TEMP/github-models-smoke-test.json")"
+            -d @"$RUNNER_TEMP/github-models-summary-test.json")"
 
           if [[ "$http_code" != "200" ]]; then
-            echo "GitHub Models API smoke test failed with HTTP $http_code" >&2
-            cat "$RUNNER_TEMP/github-models-smoke-test-response.json" >&2
+            echo "GitHub Models release summary test failed with HTTP $http_code" >&2
+            cat "$RUNNER_TEMP/github-models-summary-test-response.json" >&2
             exit 1
           fi
 
           node - <<'NODE'
           const fs = require('fs');
-          const response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/github-models-smoke-test-response.json', 'utf8'));
-          const content = response.choices?.[0]?.message?.content?.trim().toLowerCase();
-          if (content !== 'ok') {
+          const response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/github-models-summary-test-response.json', 'utf8'));
+          const content = response.choices?.[0]?.message?.content?.trim();
+          if (!content || !content.includes('## Highlights')) {
             console.error('Unexpected GitHub Models API response:', JSON.stringify(response));
             process.exit(1);
           }
-          console.log('GitHub Models API smoke test passed.');
+          console.log('GitHub Models release summary test passed.');
+          console.log(content);
           NODE
 
       - name: Validate release version
