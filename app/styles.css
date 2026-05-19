@@ -180,12 +180,20 @@ body {
 .speech::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: var(--speech-tail-left, 50%);
   width: 10px;
   height: 10px;
   border-right: 2px solid rgba(30, 38, 52, 0.72);
   border-bottom: 2px solid rgba(30, 38, 52, 0.72);
   background: rgba(255, 255, 255, 0.94);
+}
+
+.speech-page.side-left {
+  --speech-tail-left: 34%;
+}
+
+.speech-page.side-right {
+  --speech-tail-left: 66%;
 }
 
 .speech-page.above .speech::after {

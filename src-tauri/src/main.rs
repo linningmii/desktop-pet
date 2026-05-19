@@ -22,6 +22,7 @@ const BASE_PET_SIZE: u32 = 150;
 const SPEECH_WINDOW_WIDTH: f64 = 220.0;
 const SPEECH_WINDOW_HEIGHT: f64 = 76.0;
 const SPEECH_GAP: f64 = 4.0;
+const SPEECH_FACING_OFFSET: f64 = 62.0;
 const TICK_MS: u64 = 33;
 const EDGE_PADDING: f64 = 8.0;
 const PATROL_SPEED: f64 = 2.8;
@@ -134,6 +135,8 @@ struct RendererState {
     talk_when_stopped: bool,
     #[serde(rename = "speechPlacement")]
     speech_placement: &'static str,
+    #[serde(rename = "speechSide")]
+    speech_side: &'static str,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -444,7 +447,7 @@ fn start_motion_loop(
             let _ = speech_window.set_position(Position::Logical(speech_layout.position));
             let _ = window.set_always_on_top(true);
             let _ = speech_window.set_always_on_top(true);
-            build_renderer_state(&state, speech_layout.placement)
+            build_renderer_state(&state, speech_layout.placement, speech_layout.side)
         };
 
         let _ = window.emit("pet-state", renderer_state.clone());
@@ -574,7 +577,11 @@ fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (f64, f64)) {
     state.was_escaping = is_escaping;
 }
 
-fn build_renderer_state(state: &AppState, speech_placement: &'static str) -> RendererState {
+fn build_renderer_state(
+    state: &AppState,
+    speech_placement: &'static str,
+    speech_side: &'static str,
+) -> RendererState {
     RendererState {
         facing: state.pet.facing,
         moving: state.pet.moving,
@@ -592,6 +599,7 @@ fn build_renderer_state(state: &AppState, speech_placement: &'static str) -> Ren
         language: language_name(state.config.language),
         talk_when_stopped: state.config.talk_when_stopped,
         speech_placement,
+        speech_side,
     }
 }
 
@@ -837,6 +845,7 @@ fn pet_window_position(state: &AppState) -> LogicalPosition<f64> {
 struct SpeechLayout {
     position: LogicalPosition<f64>,
     placement: &'static str,
+    side: &'static str,
 }
 
 fn speech_window_size() -> LogicalSize<f64> {
@@ -848,7 +857,17 @@ fn speech_window_size() -> LogicalSize<f64> {
 
 fn speech_layout(state: &AppState, bounds: Bounds) -> SpeechLayout {
     let pet_size = pet_size(state.config.size) as f64;
-    let preferred_x = state.pet.x + pet_size / 2.0 - SPEECH_WINDOW_WIDTH / 2.0;
+    let side = if state.pet.facing == "left" {
+        "left"
+    } else {
+        "right"
+    };
+    let facing_offset = if side == "right" {
+        SPEECH_FACING_OFFSET
+    } else {
+        -SPEECH_FACING_OFFSET
+    };
+    let preferred_x = state.pet.x + pet_size / 2.0 + facing_offset - SPEECH_WINDOW_WIDTH / 2.0;
     let min_x = bounds.x + EDGE_PADDING;
     let max_x = bounds.x + bounds.width - SPEECH_WINDOW_WIDTH - EDGE_PADDING;
     let x = preferred_x.clamp(min_x, max_x);
@@ -870,6 +889,7 @@ fn speech_layout(state: &AppState, bounds: Bounds) -> SpeechLayout {
             y: y.round(),
         },
         placement,
+        side,
     }
 }
 
