@@ -181,28 +181,28 @@ body {
   content: "";
   position: absolute;
   left: var(--speech-tail-left, 50%);
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   border-right: 2px solid rgba(30, 38, 52, 0.72);
   border-bottom: 2px solid rgba(30, 38, 52, 0.72);
   background: rgba(255, 255, 255, 0.94);
 }
 
 .speech-page.side-left {
-  --speech-tail-left: 34%;
+  --speech-tail-left: 76%;
 }
 
 .speech-page.side-right {
-  --speech-tail-left: 66%;
+  --speech-tail-left: 24%;
 }
 
 .speech-page.above .speech::after {
-  bottom: -7px;
+  bottom: -9px;
   transform: translateX(-50%) rotate(45deg);
 }
 
 .speech-page.below .speech::after {
-  top: -7px;
+  top: -9px;
   transform: translateX(-50%) rotate(225deg);
 }
 
