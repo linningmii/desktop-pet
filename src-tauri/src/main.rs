@@ -1,6 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use device_query::{DeviceQuery, DeviceState};
 use rand::Rng;
 use serde::Serialize;
 use std::{
@@ -123,6 +122,9 @@ fn main() {
     tauri::Builder::default()
         .manage(shared.clone())
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let window = app.get_webview_window("pet").expect("pet window exists");
             window.set_ignore_cursor_events(true)?;
             window.set_always_on_top(true)?;
@@ -236,10 +238,12 @@ fn initialize_window(
 
 fn start_motion_loop(app: tauri::AppHandle, window: tauri::WebviewWindow, shared: SharedState) {
     thread::spawn(move || {
-        let mouse = DeviceState::new();
         loop {
             thread::sleep(Duration::from_millis(TICK_MS));
-            let cursor = mouse.get_mouse().coords;
+            let cursor = app
+                .cursor_position()
+                .map(|position| (position.x, position.y))
+                .unwrap_or((f64::INFINITY, f64::INFINITY));
             let bounds = virtual_work_area(&app).unwrap_or(Bounds {
                 x: 0.0,
                 y: 0.0,
@@ -268,15 +272,15 @@ fn start_motion_loop(app: tauri::AppHandle, window: tauri::WebviewWindow, shared
     });
 }
 
-fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (i32, i32)) {
+fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (f64, f64)) {
     let now = Instant::now();
     let pet_size = pet_size(state.config.size) as f64;
     let speed_multiplier = speed_multiplier(state.config.speed);
     let avoid_radius = avoid_radius(state.config.size);
     let center_x = state.pet.x + pet_size / 2.0;
     let center_y = state.pet.y + pet_size / 2.0;
-    let dx = center_x - cursor.0 as f64;
-    let dy = center_y - cursor.1 as f64;
+    let dx = center_x - cursor.0;
+    let dy = center_y - cursor.1;
     let distance = (dx * dx + dy * dy).sqrt();
     let is_escaping = distance < avoid_radius;
     let just_stopped_escaping = state.was_escaping && !is_escaping;

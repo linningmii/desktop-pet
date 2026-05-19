@@ -10,8 +10,9 @@ A cross-platform desktop pet built with Tauri v2.
 
 ## Status
 
-- Windows is the main tested platform.
-- macOS support is planned through Tauri, but still needs real-device verification.
+- Windows and macOS builds are checked in CI.
+- macOS support ships as a menu bar app with `.app` and `.dmg` bundles.
+- Windows support ships as a system tray app with an NSIS installer.
 - The pet lives in the system tray/menu bar and can only be exited from there.
 - It walks around the desktop, avoids the cursor, supports idle/walk sprite frames, and exposes size/speed/activity controls from the tray menu.
 
@@ -33,7 +34,7 @@ Prerequisites:
 - Node.js 24 or newer.
 - Rust and Cargo from [rustup](https://rustup.rs/).
 - Windows: Microsoft C++ Build Tools and WebView2 Runtime. See the [Tauri Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows).
-- macOS: Xcode Command Line Tools. macOS packaging still needs real-device verification.
+- macOS: Xcode Command Line Tools. See the [Tauri macOS prerequisites](https://v2.tauri.app/start/prerequisites/#macos).
 
 Install the Node-side development tools:
 
@@ -59,16 +60,23 @@ Check the code:
 npm run check
 ```
 
-Build the Windows installer:
+Build the platform bundle for the current OS:
 
 ```powershell
 npm run build
 ```
 
-The installer is generated under:
+Windows generates an NSIS installer under:
 
 ```text
 src-tauri/target/release/bundle/nsis/
+```
+
+macOS generates `.app` and `.dmg` bundles under:
+
+```text
+src-tauri/target/release/bundle/macos/
+src-tauri/target/release/bundle/dmg/
 ```
 
 ## Release
@@ -84,11 +92,14 @@ git push origin v<version>
 
 The workflow will:
 
-- run checks on Windows,
-- build the Tauri NSIS installer,
-- create a GitHub Release for the tag,
+- run checks on Windows and macOS,
+- build the Tauri NSIS installer and the Tauri `.app`/`.dmg` bundles in separate parallel Windows and macOS jobs,
+- sign release bundles with temporary self-signed certificates generated inside GitHub Actions,
+- create one GitHub Release for the tag after both platform builds finish,
 - mark prerelease tags such as `v0.2.0-alpha.1` as prereleases,
-- upload the Windows installer as a release asset.
+- upload the Windows and macOS bundles as release assets.
+
+The CI signing certificates are self-signed and are not Apple-notarized or trusted by Windows SmartScreen. They provide artifact integrity for alpha releases, but users may still need to approve the app manually on first launch.
 
 ## Assets
 

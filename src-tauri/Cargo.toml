@@ -9,7 +9,6 @@ edition = "2021"
 tauri-build = { version = "2.6.1", features = [] }
 
 [dependencies]
-device_query = "4.0.1"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
-tauri = { version = "2.11.2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2.11.2", features = ["tray-icon", "image-png", "macos-private-api"] }
