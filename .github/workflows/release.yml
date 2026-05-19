@@ -268,7 +268,7 @@ jobs:
     environment:
       name: Microsoft Foundry
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
