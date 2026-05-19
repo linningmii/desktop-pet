@@ -157,37 +157,46 @@ body {
   box-sizing: border-box;
 }
 
-.speech {
+.speech-frame {
   position: relative;
-  max-width: calc(100vw - 20px);
-  max-height: calc(100vh - 16px);
-  min-height: var(--speech-min-height, 28px);
-  padding: var(--speech-padding, 7px 10px);
-  box-sizing: border-box;
-  border: 2px solid rgba(30, 38, 52, 0.72);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #1e2634;
-  font: 700 var(--speech-font-size, 13px)/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  text-align: center;
-  overflow-wrap: anywhere;
-  box-shadow: 0 3px 10px rgba(30, 38, 52, 0.16);
+  width: 100%;
+  height: 100%;
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 160ms ease, transform 160ms ease;
 }
 
-.speech::after {
-  content: "";
+.speech-bubble {
   position: absolute;
-  left: var(--speech-tail-left, 50%);
-  width: calc(var(--speech-tail-size, 14px) * 1.15);
-  height: var(--speech-tail-size, 14px);
-  border: 2px solid rgba(30, 38, 52, 0.72);
-  border-top: 0;
-  border-left: 0;
-  border-radius: 0 0 999px 0;
-  background: rgba(255, 255, 255, 0.94);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 3px 6px rgba(30, 38, 52, 0.14));
+}
+
+.speech-bubble-path {
+  fill: rgba(255, 255, 255, 0.94);
+  stroke: rgba(30, 38, 52, 0.72);
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.speech {
+  position: absolute;
+  left: var(--speech-content-left, 12px);
+  right: var(--speech-content-right, 12px);
+  top: var(--speech-content-top, 9px);
+  bottom: var(--speech-content-bottom, 13px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  color: #1e2634;
+  font: 700 var(--speech-font-size, 13px)/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .speech-page[data-scale="small"] {
@@ -214,19 +223,7 @@ body {
   --speech-tail-size: 15px;
 }
 
-.speech-page.above .speech::after {
-  bottom: calc(var(--speech-tail-size, 14px) / -2 - 3px);
-  transform: translateX(-50%) rotate(34deg) skewX(-10deg);
-  transform-origin: 50% 0;
-}
-
-.speech-page.below .speech::after {
-  top: calc(var(--speech-tail-size, 14px) / -2 - 3px);
-  transform: translateX(-50%) rotate(214deg) skewX(-10deg);
-  transform-origin: 50% 100%;
-}
-
-.speech-page.talking .speech {
+.speech-page.talking .speech-frame {
   opacity: 1;
   transform: translateY(0);
 }
