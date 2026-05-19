@@ -360,6 +360,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: Microsoft Foundry
+    env:
+      LLM_RELEASE_NOTES_FULL_INPUT_MAX_TOKENS: 128000
+      LLM_RELEASE_NOTES_APPROX_CHARS_PER_TOKEN: 4
+      LLM_RELEASE_NOTES_MAX_COMPLETION_TOKENS: 500
     permissions:
       contents: write
 
@@ -421,9 +425,15 @@ jobs:
               HEAD > "$RUNNER_TEMP/release-commits-title-only.txt"
           fi
 
+          full_input_size_chars="$(wc -c < "$RUNNER_TEMP/release-commits-full.txt")"
+          full_input_max_chars="$((LLM_RELEASE_NOTES_FULL_INPUT_MAX_TOKENS * LLM_RELEASE_NOTES_APPROX_CHARS_PER_TOKEN))"
+
           commit_input="$RUNNER_TEMP/release-commits-full.txt"
-          if [[ "$(wc -c < "$commit_input")" -gt 24000 ]]; then
+          if [[ "$full_input_size_chars" -gt "$full_input_max_chars" ]]; then
+            echo "Full commit input is ${full_input_size_chars} chars, over the configured ${LLM_RELEASE_NOTES_FULL_INPUT_MAX_TOKENS} token budget; using title-only commits."
             commit_input="$RUNNER_TEMP/release-commits-title-only.txt"
+          else
+            echo "Full commit input is ${full_input_size_chars} chars, within the configured ${LLM_RELEASE_NOTES_FULL_INPUT_MAX_TOKENS} token budget."
           fi
 
           node - "$commit_input" "$RUNNER_TEMP/foundry-summary.json" <<'NODE'
@@ -448,7 +458,7 @@ jobs:
                 content: `Generate release highlights from these commits:\n\n${commits}`
               }
             ],
-            max_completion_tokens: 500
+            max_completion_tokens: Number(process.env.LLM_RELEASE_NOTES_MAX_COMPLETION_TOKENS || 500)
           };
           fs.writeFileSync(outputPath, JSON.stringify(payload));
           NODE
