@@ -170,6 +170,7 @@ jobs:
           CERT_NAME="Desktop Pet Self Signed"
           KEYCHAIN_PATH="$RUNNER_TEMP/desktop-pet-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          P12_PASSWORD="$(openssl rand -base64 32)"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -202,11 +203,11 @@ jobs:
             -out "$RUNNER_TEMP/codesign.p12" \
             -inkey "$RUNNER_TEMP/codesign.key" \
             -in "$RUNNER_TEMP/codesign.crt" \
-            -passout pass:
+            -passout "pass:$P12_PASSWORD"
 
           security import "$RUNNER_TEMP/codesign.p12" \
             -k "$KEYCHAIN_PATH" \
-            -P "" \
+            -P "$P12_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
 
