@@ -1,11 +1,15 @@
 const pet = document.querySelector('#pet');
 const image = document.querySelector('#pet-frame');
+const speech = document.querySelector('#speech');
 
 let manifest = { idle: {}, walk: [] };
 let walkFrameIndex = 0;
 let lastWalkFrameAt = 0;
 let currentIdleSrc = '';
 let currentIdleMood = '';
+let currentSpeech = '';
+let currentSpeechKey = '';
+let speechLines = {};
 
 function encodeAssetPath(path) {
   return path
@@ -60,6 +64,15 @@ async function loadManifest() {
   }
 }
 
+async function loadSpeechLines() {
+  try {
+    const response = await fetch('assets/pet/speech-lines.json');
+    speechLines = await response.json();
+  } catch {
+    speechLines = {};
+  }
+}
+
 function setFrame(src) {
   if (!src) {
     image.removeAttribute('src');
@@ -82,6 +95,55 @@ function pickIdleFrame(mood) {
   return frames[Math.floor(Math.random() * frames.length)];
 }
 
+function pickLine(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return '';
+  }
+
+  return lines[Math.floor(Math.random() * lines.length)];
+}
+
+function linesForState(state) {
+  const activity = state.activity === 'slacking' ? 'slacking' : 'work';
+  const language = state.language === 'en' ? 'en' : 'zh';
+  const lines = speechLines[language] || speechLines.zh;
+
+  if (state.behavior === 'stopped' && !state.stoppedShapeshift) {
+    const mood = state.stoppedMood || 'calm';
+    return lines?.stopped?.[activity]?.[mood] || lines?.stopped?.[activity]?.calm || [];
+  }
+
+  return [];
+}
+
+function speechKeyForState(state) {
+  if (state.behavior === 'stopped' && !state.stoppedShapeshift) {
+    return `stopped:${state.language}:${state.activity}:${state.stoppedMood}`;
+  }
+
+  return '';
+}
+
+function updateSpeech(state) {
+  const key = state.talkWhenStopped ? speechKeyForState(state) : '';
+
+  if (!key) {
+    currentSpeech = '';
+    currentSpeechKey = '';
+    speech.textContent = '';
+    pet.classList.remove('talking');
+    return;
+  }
+
+  if (key !== currentSpeechKey) {
+    currentSpeech = pickLine(linesForState(state));
+    currentSpeechKey = key;
+  }
+
+  speech.textContent = currentSpeech;
+  pet.classList.toggle('talking', Boolean(currentSpeech));
+}
+
 function updateFrame(state) {
   const now = performance.now();
   const isMoving = state.moving || state.behavior === 'escaping';
@@ -97,9 +159,9 @@ function updateFrame(state) {
     return;
   }
 
-  if (!currentIdleSrc || currentIdleMood !== state.idleMood || state.idleShapeshift) {
-    currentIdleSrc = pickIdleFrame(state.idleMood);
-    currentIdleMood = state.idleMood;
+  if (!currentIdleSrc || currentIdleMood !== state.stoppedMood || state.stoppedShapeshift) {
+    currentIdleSrc = pickIdleFrame(state.stoppedMood);
+    currentIdleMood = state.stoppedMood;
   }
   setFrame(currentIdleSrc);
 }
@@ -109,10 +171,11 @@ function renderState(state) {
   pet.classList.toggle('moving', Boolean(state.moving));
   pet.style.setProperty('--bob-speed', `${Math.max(0.45, 1.2 - (state.speed || 0) / 12)}s`);
   updateFrame(state);
+  updateSpeech(state);
 }
 
 async function main() {
-  await loadManifest();
+  await Promise.all([loadManifest(), loadSpeechLines()]);
 
   const tauri = window.__TAURI__;
   if (tauri?.event?.listen) {

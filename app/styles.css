@@ -19,6 +19,55 @@ body {
   animation: breathe 1.7s ease-in-out infinite;
 }
 
+.speech {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  z-index: 2;
+  max-width: min(204px, calc(100vw - 16px));
+  min-height: 28px;
+  padding: 7px 10px;
+  box-sizing: border-box;
+  border: 2px solid rgba(30, 38, 52, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1e2634;
+  font: 700 13px/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center;
+  overflow-wrap: anywhere;
+  box-shadow: 0 3px 10px rgba(30, 38, 52, 0.16);
+  opacity: 0;
+  translate: -50% 4px;
+  transition: opacity 160ms ease, translate 160ms ease;
+}
+
+.speech::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(30, 38, 52, 0.72);
+  border-bottom: 2px solid rgba(30, 38, 52, 0.72);
+  background: rgba(255, 255, 255, 0.94);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.pet.talking .speech {
+  opacity: 1;
+  translate: -50% 0;
+}
+
+.sprite {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: calc(100vh - 68px);
+  height: calc(100vh - 68px);
+  transform: translateX(-50%);
+}
+
 .pet-frame {
   position: absolute;
   inset: 0;
@@ -140,4 +189,3 @@ body {
     translate: 0 1%;
   }
 }
-

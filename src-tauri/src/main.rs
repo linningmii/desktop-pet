@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rand::Rng;
-use serde::Serialize;
+use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
+use serde::{Deserialize, Serialize};
 use std::{
+    fs, io,
+    path::PathBuf,
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -15,6 +18,8 @@ use tauri::{
 };
 
 const BASE_PET_SIZE: u32 = 150;
+const MIN_WINDOW_WIDTH: u32 = 220;
+const SPEECH_AREA_HEIGHT: u32 = 68;
 const TICK_MS: u64 = 33;
 const EDGE_PADDING: f64 = 8.0;
 const PATROL_SPEED: f64 = 2.8;
@@ -25,48 +30,64 @@ const MAX_ESCAPE_SPEED: f64 = 13.5;
 const FRICTION: f64 = 0.94;
 const START_DURATION_MS: u64 = 900;
 const STOP_DURATION_MS: u64 = 850;
-const IDLE_MIN_MS: u64 = 5_000;
-const IDLE_MAX_MS: u64 = 20_000;
+const STOPPED_MIN_MS: u64 = 5_000;
+const STOPPED_MAX_MS: u64 = 20_000;
 const PATROL_MIN_MS: u64 = 3_000;
 const PATROL_MAX_MS: u64 = 60_000;
-const IDLE_SHAPESHIFT_CHANCE: f64 = 0.3;
-const IDLE_SHAPESHIFT_INTERVAL_MS: u64 = 1_000;
+const STOPPED_SHAPESHIFT_CHANCE: f64 = 0.3;
+const STOPPED_SHAPESHIFT_INTERVAL_MS: u64 = 1_000;
+const SETTINGS_FILE_NAME: &str = "settings.json";
+const I18N_JSON: &str = include_str!("../../app/assets/pet/i18n.json");
 
 type SharedState = Arc<Mutex<AppState>>;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 enum SizeProfile {
     Small,
     Medium,
     Large,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 enum SpeedProfile {
     Slow,
     Normal,
     Fast,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 enum Activity {
     Work,
     Slacking,
 }
 
+#[derive(Clone, Copy, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Language {
+    Zh,
+    En,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Behavior {
-    Idle,
+    Stopped,
     Starting,
     Patrol,
     Stopping,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 struct PetConfig {
     size: SizeProfile,
     speed: SpeedProfile,
     activity: Activity,
+    #[serde(default)]
+    language: Language,
+    #[serde(default = "default_talk_when_stopped")]
+    talk_when_stopped: bool,
 }
 
 struct PetState {
@@ -87,9 +108,9 @@ struct AppState {
     behavior: Behavior,
     behavior_started_at: Instant,
     next_behavior_change_at: Instant,
-    idle_mood: &'static str,
-    idle_shapeshift: bool,
-    next_idle_mood_change_at: Instant,
+    stopped_mood: &'static str,
+    stopped_shapeshift: bool,
+    next_stopped_mood_change_at: Instant,
 }
 
 #[derive(Clone, Serialize)]
@@ -97,15 +118,45 @@ struct RendererState {
     facing: &'static str,
     moving: bool,
     behavior: &'static str,
-    #[serde(rename = "idleMood")]
-    idle_mood: &'static str,
-    #[serde(rename = "idleShapeshift")]
-    idle_shapeshift: bool,
+    #[serde(rename = "stoppedMood")]
+    stopped_mood: &'static str,
+    #[serde(rename = "stoppedShapeshift")]
+    stopped_shapeshift: bool,
     activity: &'static str,
     size: u32,
     #[serde(rename = "baseSize")]
     base_size: u32,
     speed: f64,
+    language: &'static str,
+    #[serde(rename = "talkWhenStopped")]
+    talk_when_stopped: bool,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct I18nText {
+    settings_dialog_title: String,
+    settings_load_failed: String,
+    settings_save_failed: String,
+    settings_path_unavailable: String,
+    settings_invalid_data: String,
+    size_menu: String,
+    size_small: String,
+    size_medium: String,
+    size_large: String,
+    speed_menu: String,
+    speed_slow: String,
+    speed_normal: String,
+    speed_fast: String,
+    activity_prefix: String,
+    activity_work: String,
+    activity_slacking: String,
+    language_menu: String,
+    language_zh: String,
+    language_en: String,
+    talk_when_stopped: String,
+    version: String,
+    quit: String,
 }
 
 #[derive(Clone, Copy)]
@@ -129,6 +180,9 @@ fn main() {
             window.set_ignore_cursor_events(true)?;
             window.set_always_on_top(true)?;
             let _ = window.set_visible_on_all_workspaces(true);
+
+            shared.lock().expect("state lock").config = load_config_or_default(app.handle());
+
             create_tray(app.handle(), shared.clone())?;
             initialize_window(app.handle(), &window, &shared)?;
             start_motion_loop(app.handle().clone(), window, shared.clone());
@@ -142,11 +196,7 @@ impl AppState {
     fn new() -> Self {
         let now = Instant::now();
         Self {
-            config: PetConfig {
-                size: SizeProfile::Small,
-                speed: SpeedProfile::Fast,
-                activity: Activity::Work,
-            },
+            config: PetConfig::default(),
             pet: PetState {
                 x: 0.0,
                 y: 0.0,
@@ -161,9 +211,10 @@ impl AppState {
             behavior: Behavior::Patrol,
             behavior_started_at: now,
             next_behavior_change_at: now + random_duration(PATROL_MIN_MS, PATROL_MAX_MS),
-            idle_mood: "calm",
-            idle_shapeshift: false,
-            next_idle_mood_change_at: now + Duration::from_millis(IDLE_SHAPESHIFT_INTERVAL_MS),
+            stopped_mood: "calm",
+            stopped_shapeshift: false,
+            next_stopped_mood_change_at: now
+                + Duration::from_millis(STOPPED_SHAPESHIFT_INTERVAL_MS),
         }
     }
 
@@ -172,39 +223,56 @@ impl AppState {
         self.behavior = behavior;
         self.behavior_started_at = now;
         match behavior {
-            Behavior::Idle => {
-                self.idle_shapeshift = rand::thread_rng().gen_bool(IDLE_SHAPESHIFT_CHANCE);
-                self.choose_idle_mood();
-                self.next_idle_mood_change_at =
-                    now + Duration::from_millis(IDLE_SHAPESHIFT_INTERVAL_MS);
-                self.next_behavior_change_at = now + random_duration(IDLE_MIN_MS, IDLE_MAX_MS);
+            Behavior::Stopped => {
+                self.stopped_shapeshift = rand::thread_rng().gen_bool(STOPPED_SHAPESHIFT_CHANCE);
+                self.choose_stopped_mood();
+                self.next_stopped_mood_change_at =
+                    now + Duration::from_millis(STOPPED_SHAPESHIFT_INTERVAL_MS);
+                self.next_behavior_change_at =
+                    now + random_duration(STOPPED_MIN_MS, STOPPED_MAX_MS);
             }
             Behavior::Patrol => {
-                self.idle_shapeshift = false;
+                self.stopped_shapeshift = false;
                 self.next_behavior_change_at = now + random_duration(PATROL_MIN_MS, PATROL_MAX_MS);
             }
             _ => {
-                self.idle_shapeshift = false;
+                self.stopped_shapeshift = false;
             }
         }
     }
 
-    fn choose_idle_mood(&mut self) {
-        self.idle_mood = match self.config.activity {
-            Activity::Work => pick_weighted(&[
-                ("happy", 1),
-                ("calm", 9),
-                ("angry", 60),
-                ("sorrow", 30),
-            ]),
-            Activity::Slacking => pick_weighted(&[
-                ("happy", 40),
-                ("calm", 40),
-                ("angry", 5),
-                ("sorrow", 15),
-            ]),
+    fn choose_stopped_mood(&mut self) {
+        self.stopped_mood = match self.config.activity {
+            Activity::Work => {
+                pick_weighted(&[("happy", 1), ("calm", 9), ("angry", 60), ("sorrow", 30)])
+            }
+            Activity::Slacking => {
+                pick_weighted(&[("happy", 40), ("calm", 40), ("angry", 5), ("sorrow", 15)])
+            }
         };
     }
+}
+
+impl Default for PetConfig {
+    fn default() -> Self {
+        Self {
+            size: SizeProfile::Small,
+            speed: SpeedProfile::Fast,
+            activity: Activity::Work,
+            language: Language::default(),
+            talk_when_stopped: default_talk_when_stopped(),
+        }
+    }
+}
+
+impl Default for Language {
+    fn default() -> Self {
+        Self::Zh
+    }
+}
+
+fn default_talk_when_stopped() -> bool {
+    true
 }
 
 fn initialize_window(
@@ -223,52 +291,113 @@ fn initialize_window(
     state.pet.x = bounds.x + bounds.width - pet_size - 80.0;
     state.pet.y = bounds.y + bounds.height - pet_size - 60.0;
     state.patrol_y = state.pet.y;
-    window.set_size(Size::Physical(PhysicalSize {
-        width: pet_size as u32,
-        height: pet_size as u32,
-    }))?;
-    window.set_position(Position::Physical(PhysicalPosition {
-        x: state.pet.x.round() as i32,
-        y: state.pet.y.round() as i32,
-    }))?;
+    window.set_size(Size::Physical(window_size(state.config.size)))?;
+    window.set_position(Position::Physical(window_position(&state)))?;
     window.show()?;
     window.set_always_on_top(true)?;
     Ok(())
 }
 
-fn start_motion_loop(app: tauri::AppHandle, window: tauri::WebviewWindow, shared: SharedState) {
-    thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_millis(TICK_MS));
-            let cursor = app
-                .cursor_position()
-                .map(|position| (position.x, position.y))
-                .unwrap_or((f64::INFINITY, f64::INFINITY));
-            let bounds = virtual_work_area(&app).unwrap_or(Bounds {
-                x: 0.0,
-                y: 0.0,
-                width: 1280.0,
-                height: 720.0,
-            });
+fn settings_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(SETTINGS_FILE_NAME))
+}
 
-            let renderer_state = {
-                let mut state = shared.lock().expect("state lock");
-                update_motion(&mut state, bounds, cursor);
-                let pet_size = pet_size(state.config.size);
-                let _ = window.set_size(Size::Physical(PhysicalSize {
-                    width: pet_size,
-                    height: pet_size,
-                }));
-                let _ = window.set_position(Position::Physical(PhysicalPosition {
-                    x: state.pet.x.round() as i32,
-                    y: state.pet.y.round() as i32,
-                }));
-                let _ = window.set_always_on_top(true);
-                build_renderer_state(&state)
-            };
+fn load_config_or_default(app: &tauri::AppHandle) -> PetConfig {
+    match load_config(app) {
+        Ok(Some(config)) => config,
+        Ok(None) => PetConfig::default(),
+        Err(error) => {
+            let text = i18n_text(Language::default());
+            let reset = MessageDialog::new()
+                .set_level(MessageLevel::Warning)
+                .set_title(&text.settings_dialog_title)
+                .set_description(text.settings_load_failed.replace("{error}", &error))
+                .set_buttons(MessageButtons::YesNo)
+                .show();
 
-            let _ = window.emit("pet-state", renderer_state);
+            let config = PetConfig::default();
+            if reset == MessageDialogResult::Yes {
+                save_config(app, config);
+            }
+            config
         }
+    }
+}
+
+fn load_config(app: &tauri::AppHandle) -> Result<Option<PetConfig>, String> {
+    let text = i18n_text(Language::default());
+    let path = settings_path(app).ok_or(text.settings_path_unavailable)?;
+    let content = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+
+    serde_json::from_str(&content).map(Some).map_err(|error| {
+        text.settings_invalid_data
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &error.to_string())
+    })
+}
+
+fn save_config(app: &tauri::AppHandle, config: PetConfig) {
+    if let Err(error) = try_save_config(app, config) {
+        let text = i18n_text(config.language);
+        show_settings_error(
+            text.settings_dialog_title,
+            text.settings_save_failed.replace("{error}", &error),
+        );
+    }
+}
+
+fn try_save_config(app: &tauri::AppHandle, config: PetConfig) -> Result<(), String> {
+    let text = i18n_text(config.language);
+    let path = settings_path(app).ok_or(text.settings_path_unavailable)?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
+
+    let content = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
+    fs::write(&path, content).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+fn show_settings_error(title: String, description: String) {
+    let _ = MessageDialog::new()
+        .set_level(MessageLevel::Error)
+        .set_title(title)
+        .set_description(description)
+        .set_buttons(MessageButtons::Ok)
+        .show();
+}
+
+fn start_motion_loop(app: tauri::AppHandle, window: tauri::WebviewWindow, shared: SharedState) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(TICK_MS));
+        let cursor = app
+            .cursor_position()
+            .map(|position| (position.x, position.y))
+            .unwrap_or((f64::INFINITY, f64::INFINITY));
+        let bounds = virtual_work_area(&app).unwrap_or(Bounds {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        });
+
+        let renderer_state = {
+            let mut state = shared.lock().expect("state lock");
+            update_motion(&mut state, bounds, cursor);
+            let _ = window.set_size(Size::Physical(window_size(state.config.size)));
+            let _ = window.set_position(Position::Physical(window_position(&state)));
+            let _ = window.set_always_on_top(true);
+            build_renderer_state(&state)
+        };
+
+        let _ = window.emit("pet-state", renderer_state);
     });
 }
 
@@ -297,27 +426,29 @@ fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (f64, f64)) {
         }
 
         let mut elapsed = now.duration_since(state.behavior_started_at).as_millis() as f64;
-        if state.behavior == Behavior::Idle && now > state.next_behavior_change_at {
+        if state.behavior == Behavior::Stopped && now > state.next_behavior_change_at {
             state.set_behavior(Behavior::Starting);
-        } else if state.behavior == Behavior::Idle
-            && state.idle_shapeshift
-            && now > state.next_idle_mood_change_at
+        } else if state.behavior == Behavior::Stopped
+            && state.stopped_shapeshift
+            && now > state.next_stopped_mood_change_at
         {
-            state.choose_idle_mood();
-            state.next_idle_mood_change_at =
-                now + Duration::from_millis(IDLE_SHAPESHIFT_INTERVAL_MS);
+            state.choose_stopped_mood();
+            state.next_stopped_mood_change_at =
+                now + Duration::from_millis(STOPPED_SHAPESHIFT_INTERVAL_MS);
         } else if state.behavior == Behavior::Starting && elapsed > START_DURATION_MS as f64 {
             state.set_behavior(Behavior::Patrol);
         } else if state.behavior == Behavior::Patrol && now > state.next_behavior_change_at {
             state.set_behavior(Behavior::Stopping);
         } else if state.behavior == Behavior::Stopping && elapsed > STOP_DURATION_MS as f64 {
-            state.set_behavior(Behavior::Idle);
+            state.set_behavior(Behavior::Stopped);
         }
 
         elapsed = now.duration_since(state.behavior_started_at).as_millis() as f64;
         let patrol_force = match state.behavior {
             Behavior::Starting => {
-                PATROL_ACCELERATION * speed_multiplier * ease_in_out(elapsed / START_DURATION_MS as f64)
+                PATROL_ACCELERATION
+                    * speed_multiplier
+                    * ease_in_out(elapsed / START_DURATION_MS as f64)
             }
             Behavior::Patrol => PATROL_ACCELERATION * speed_multiplier,
             Behavior::Stopping => {
@@ -325,7 +456,7 @@ fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (f64, f64)) {
                 state.pet.vx *= 1.0 - stop_progress * 0.09;
                 PATROL_ACCELERATION * speed_multiplier * (1.0 - stop_progress) * 0.45
             }
-            Behavior::Idle => {
+            Behavior::Stopped => {
                 state.pet.vx *= 0.82;
                 0.0
             }
@@ -343,9 +474,12 @@ fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (f64, f64)) {
     let max_speed = if is_escaping {
         MAX_ESCAPE_SPEED * speed_multiplier
     } else if state.behavior == Behavior::Starting {
-        (PATROL_SPEED * speed_multiplier * 0.35)
-            .max(MAX_PATROL_SPEED * speed_multiplier * ease_in_out(behavior_elapsed / START_DURATION_MS as f64))
-    } else if state.behavior == Behavior::Stopping || state.behavior == Behavior::Idle {
+        (PATROL_SPEED * speed_multiplier * 0.35).max(
+            MAX_PATROL_SPEED
+                * speed_multiplier
+                * ease_in_out(behavior_elapsed / START_DURATION_MS as f64),
+        )
+    } else if state.behavior == Behavior::Stopping || state.behavior == Behavior::Stopped {
         0.18_f64.max(
             MAX_PATROL_SPEED
                 * speed_multiplier
@@ -398,12 +532,14 @@ fn build_renderer_state(state: &AppState) -> RendererState {
         } else {
             behavior_name(state.behavior)
         },
-        idle_mood: state.idle_mood,
-        idle_shapeshift: state.idle_shapeshift,
+        stopped_mood: state.stopped_mood,
+        stopped_shapeshift: state.stopped_shapeshift,
         activity: activity_name(state.config.activity),
         size: pet_size(state.config.size),
         base_size: BASE_PET_SIZE,
         speed: hypot(state.pet.vx, state.pet.vy),
+        language: language_name(state.config.language),
+        talk_when_stopped: state.config.talk_when_stopped,
     }
 }
 
@@ -422,33 +558,130 @@ fn create_tray(app: &tauri::AppHandle, shared: SharedState) -> tauri::Result<()>
     Ok(())
 }
 
-fn build_tray_menu(app: &tauri::AppHandle, shared: &SharedState) -> tauri::Result<Menu<tauri::Wry>> {
+fn build_tray_menu(
+    app: &tauri::AppHandle,
+    shared: &SharedState,
+) -> tauri::Result<Menu<tauri::Wry>> {
     let config = shared.lock().expect("state lock").config;
-    let show = MenuItem::with_id(app, "show", "显示宠物", true, None::<&str>)?;
-    let small = CheckMenuItem::with_id(app, "size:small", "小", true, config.size == SizeProfile::Small, None::<&str>)?;
-    let medium = CheckMenuItem::with_id(app, "size:medium", "中", true, config.size == SizeProfile::Medium, None::<&str>)?;
-    let large = CheckMenuItem::with_id(app, "size:large", "大", true, config.size == SizeProfile::Large, None::<&str>)?;
-    let size_menu = Submenu::with_items(app, "大小", true, &[&small, &medium, &large])?;
+    let text = i18n_text(config.language);
+    let small = CheckMenuItem::with_id(
+        app,
+        "size:small",
+        &text.size_small,
+        true,
+        config.size == SizeProfile::Small,
+        None::<&str>,
+    )?;
+    let medium = CheckMenuItem::with_id(
+        app,
+        "size:medium",
+        &text.size_medium,
+        true,
+        config.size == SizeProfile::Medium,
+        None::<&str>,
+    )?;
+    let large = CheckMenuItem::with_id(
+        app,
+        "size:large",
+        &text.size_large,
+        true,
+        config.size == SizeProfile::Large,
+        None::<&str>,
+    )?;
+    let size_menu = Submenu::with_items(app, &text.size_menu, true, &[&small, &medium, &large])?;
 
-    let slow = CheckMenuItem::with_id(app, "speed:slow", "慢", true, config.speed == SpeedProfile::Slow, None::<&str>)?;
-    let normal = CheckMenuItem::with_id(app, "speed:normal", "正常", true, config.speed == SpeedProfile::Normal, None::<&str>)?;
-    let fast = CheckMenuItem::with_id(app, "speed:fast", "快", true, config.speed == SpeedProfile::Fast, None::<&str>)?;
-    let speed_menu = Submenu::with_items(app, "运动速度", true, &[&slow, &normal, &fast])?;
+    let slow = CheckMenuItem::with_id(
+        app,
+        "speed:slow",
+        &text.speed_slow,
+        true,
+        config.speed == SpeedProfile::Slow,
+        None::<&str>,
+    )?;
+    let normal = CheckMenuItem::with_id(
+        app,
+        "speed:normal",
+        &text.speed_normal,
+        true,
+        config.speed == SpeedProfile::Normal,
+        None::<&str>,
+    )?;
+    let fast = CheckMenuItem::with_id(
+        app,
+        "speed:fast",
+        &text.speed_fast,
+        true,
+        config.speed == SpeedProfile::Fast,
+        None::<&str>,
+    )?;
+    let speed_menu = Submenu::with_items(app, &text.speed_menu, true, &[&slow, &normal, &fast])?;
 
-    let work = CheckMenuItem::with_id(app, "activity:work", "工作", true, config.activity == Activity::Work, None::<&str>)?;
-    let slacking = CheckMenuItem::with_id(app, "activity:slacking", "摸鱼", true, config.activity == Activity::Slacking, None::<&str>)?;
-    let activity_label = format!("我在{}", activity_label(config.activity));
+    let work = CheckMenuItem::with_id(
+        app,
+        "activity:work",
+        &text.activity_work,
+        true,
+        config.activity == Activity::Work,
+        None::<&str>,
+    )?;
+    let slacking = CheckMenuItem::with_id(
+        app,
+        "activity:slacking",
+        &text.activity_slacking,
+        true,
+        config.activity == Activity::Slacking,
+        None::<&str>,
+    )?;
+    let activity_label = text
+        .activity_prefix
+        .replace("{activity}", activity_label(config.activity, &text));
     let activity_menu = Submenu::with_items(app, activity_label, true, &[&work, &slacking])?;
 
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let zh = CheckMenuItem::with_id(
+        app,
+        "language:zh",
+        &text.language_zh,
+        true,
+        config.language == Language::Zh,
+        None::<&str>,
+    )?;
+    let en = CheckMenuItem::with_id(
+        app,
+        "language:en",
+        &text.language_en,
+        true,
+        config.language == Language::En,
+        None::<&str>,
+    )?;
+    let language_menu = Submenu::with_items(app, &text.language_menu, true, &[&zh, &en])?;
+
+    let talk_when_stopped = CheckMenuItem::with_id(
+        app,
+        "talk:stopped",
+        &text.talk_when_stopped,
+        true,
+        config.talk_when_stopped,
+        None::<&str>,
+    )?;
+    let version = MenuItem::with_id(
+        app,
+        "version",
+        format!("{} v{}", text.version, env!("CARGO_PKG_VERSION")),
+        false,
+        None::<&str>,
+    )?;
+
+    let quit = MenuItem::with_id(app, "quit", text.quit, true, None::<&str>)?;
     Menu::with_items(
         app,
         &[
-            &show,
-            &PredefinedMenuItem::separator(app)?,
             &size_menu,
             &speed_menu,
             &activity_menu,
+            &language_menu,
+            &talk_when_stopped,
+            &PredefinedMenuItem::separator(app)?,
+            &version,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -458,12 +691,6 @@ fn build_tray_menu(app: &tauri::AppHandle, shared: &SharedState) -> tauri::Resul
 fn handle_menu_event(app: &tauri::AppHandle, id: &str, shared: &SharedState) {
     match id {
         "quit" => app.exit(0),
-        "show" => {
-            if let Some(window) = app.get_webview_window("pet") {
-                let _ = window.show();
-                let _ = window.set_always_on_top(true);
-            }
-        }
         "size:small" | "size:medium" | "size:large" => {
             let next_size = match id {
                 "size:small" => SizeProfile::Small,
@@ -471,6 +698,7 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, shared: &SharedState) {
                 _ => SizeProfile::Large,
             };
             apply_size(app, shared, next_size);
+            save_current_config(app, shared);
             refresh_tray_menu(app, shared);
         }
         "speed:slow" | "speed:normal" | "speed:fast" => {
@@ -480,6 +708,7 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, shared: &SharedState) {
                 _ => SpeedProfile::Fast,
             };
             shared.lock().expect("state lock").config.speed = next_speed;
+            save_current_config(app, shared);
             refresh_tray_menu(app, shared);
         }
         "activity:work" | "activity:slacking" => {
@@ -489,14 +718,36 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, shared: &SharedState) {
             } else {
                 Activity::Slacking
             };
-            if state.behavior == Behavior::Idle {
-                state.choose_idle_mood();
+            if state.behavior == Behavior::Stopped {
+                state.choose_stopped_mood();
             }
             drop(state);
+            save_current_config(app, shared);
+            refresh_tray_menu(app, shared);
+        }
+        "language:zh" | "language:en" => {
+            shared.lock().expect("state lock").config.language = if id == "language:zh" {
+                Language::Zh
+            } else {
+                Language::En
+            };
+            save_current_config(app, shared);
+            refresh_tray_menu(app, shared);
+        }
+        "talk:stopped" => {
+            let mut state = shared.lock().expect("state lock");
+            state.config.talk_when_stopped = !state.config.talk_when_stopped;
+            drop(state);
+            save_current_config(app, shared);
             refresh_tray_menu(app, shared);
         }
         _ => {}
     }
+}
+
+fn save_current_config(app: &tauri::AppHandle, shared: &SharedState) {
+    let config = shared.lock().expect("state lock").config;
+    save_config(app, config);
 }
 
 fn apply_size(app: &tauri::AppHandle, shared: &SharedState, next_size: SizeProfile) {
@@ -511,10 +762,24 @@ fn apply_size(app: &tauri::AppHandle, shared: &SharedState, next_size: SizeProfi
     drop(state);
 
     if let Some(window) = app.get_webview_window("pet") {
-        let _ = window.set_size(Size::Physical(PhysicalSize {
-            width: next as u32,
-            height: next as u32,
-        }));
+        let _ = window.set_size(Size::Physical(window_size(next_size)));
+    }
+}
+
+fn window_size(size: SizeProfile) -> PhysicalSize<u32> {
+    let pet_size = pet_size(size);
+    PhysicalSize {
+        width: pet_size.max(MIN_WINDOW_WIDTH),
+        height: pet_size + SPEECH_AREA_HEIGHT,
+    }
+}
+
+fn window_position(state: &AppState) -> PhysicalPosition<i32> {
+    let pet_size = pet_size(state.config.size) as f64;
+    let window_width = window_size(state.config.size).width as f64;
+    PhysicalPosition {
+        x: (state.pet.x - (window_width - pet_size) / 2.0).round() as i32,
+        y: (state.pet.y - SPEECH_AREA_HEIGHT as f64).round() as i32,
     }
 }
 
@@ -611,16 +876,92 @@ fn activity_name(activity: Activity) -> &'static str {
     }
 }
 
-fn activity_label(activity: Activity) -> &'static str {
+fn activity_label<'a>(activity: Activity, text: &'a I18nText) -> &'a str {
     match activity {
-        Activity::Work => "工作",
-        Activity::Slacking => "摸鱼",
+        Activity::Work => &text.activity_work,
+        Activity::Slacking => &text.activity_slacking,
+    }
+}
+
+fn i18n_text(language: Language) -> I18nText {
+    let parsed: serde_json::Value = serde_json::from_str(I18N_JSON).unwrap_or_else(|_| {
+        serde_json::json!({
+            "zh": fallback_i18n_text(Language::Zh),
+            "en": fallback_i18n_text(Language::En)
+        })
+    });
+    let key = language_name(language);
+    parsed
+        .get(key)
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_else(|| fallback_i18n_text(language))
+}
+
+fn fallback_i18n_text(language: Language) -> I18nText {
+    match language {
+        Language::Zh => I18nText {
+            settings_dialog_title: "Desktop Pet 设置".to_string(),
+            settings_load_failed: "设置读取失败：\n{error}\n\n是否重置为默认设置？".to_string(),
+            settings_save_failed: "设置保存失败：\n{error}".to_string(),
+            settings_path_unavailable: "无法解析设置文件路径。".to_string(),
+            settings_invalid_data: "{path} 包含无效设置数据：{error}".to_string(),
+            size_menu: "大小".to_string(),
+            size_small: "小".to_string(),
+            size_medium: "中".to_string(),
+            size_large: "大".to_string(),
+            speed_menu: "运动速度".to_string(),
+            speed_slow: "慢".to_string(),
+            speed_normal: "正常".to_string(),
+            speed_fast: "快".to_string(),
+            activity_prefix: "我在{activity}".to_string(),
+            activity_work: "工作".to_string(),
+            activity_slacking: "摸鱼".to_string(),
+            language_menu: "语言".to_string(),
+            language_zh: "中文".to_string(),
+            language_en: "English".to_string(),
+            talk_when_stopped: "停止时说话".to_string(),
+            version: "版本".to_string(),
+            quit: "退出".to_string(),
+        },
+        Language::En => I18nText {
+            settings_dialog_title: "Desktop Pet Settings".to_string(),
+            settings_load_failed:
+                "Settings could not be loaded:\n{error}\n\nReset settings to defaults?".to_string(),
+            settings_save_failed: "Settings could not be saved:\n{error}".to_string(),
+            settings_path_unavailable: "Could not resolve settings path.".to_string(),
+            settings_invalid_data: "{path} contains invalid settings data: {error}".to_string(),
+            size_menu: "Size".to_string(),
+            size_small: "Small".to_string(),
+            size_medium: "Medium".to_string(),
+            size_large: "Large".to_string(),
+            speed_menu: "Movement Speed".to_string(),
+            speed_slow: "Slow".to_string(),
+            speed_normal: "Normal".to_string(),
+            speed_fast: "Fast".to_string(),
+            activity_prefix: "Mode: {activity}".to_string(),
+            activity_work: "Work".to_string(),
+            activity_slacking: "Slacking".to_string(),
+            language_menu: "Language".to_string(),
+            language_zh: "中文".to_string(),
+            language_en: "English".to_string(),
+            talk_when_stopped: "Talk When Stopped".to_string(),
+            version: "Version".to_string(),
+            quit: "Quit".to_string(),
+        },
+    }
+}
+
+fn language_name(language: Language) -> &'static str {
+    match language {
+        Language::Zh => "zh",
+        Language::En => "en",
     }
 }
 
 fn behavior_name(behavior: Behavior) -> &'static str {
     match behavior {
-        Behavior::Idle => "idle",
+        Behavior::Stopped => "stopped",
         Behavior::Starting => "starting",
         Behavior::Patrol => "patrol",
         Behavior::Stopping => "stopping",
