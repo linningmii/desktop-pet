@@ -28,7 +28,8 @@
         "skipTaskbar": true,
         "focusable": false
       }
-    ]
+    ],
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

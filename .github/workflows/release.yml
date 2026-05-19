@@ -18,8 +18,6 @@ jobs:
   check:
     name: Check (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
-    environment:
-      name: Microsoft Foundry
     strategy:
       fail-fast: false
       matrix:
@@ -51,93 +49,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Test Microsoft Foundry release summary
-        if: matrix.platform.name == 'macOS'
-        shell: bash
-        env:
-          AZURE_OPENAI_ENDPOINT: https://linzhming27-9062-resource.openai.azure.com/openai/v1
-          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${AZURE_OPENAI_API_KEY}" ]]; then
-            echo "AZURE_OPENAI_API_KEY secret is required for the Microsoft Foundry release summary test." >&2
-            exit 1
-          fi
-
-          previous_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
-          if [[ -n "$previous_tag" ]]; then
-            commit_range="$previous_tag..HEAD"
-          else
-            commit_range="HEAD~20..HEAD"
-          fi
-
-          git log \
-            --format='commit %h%nTitle: %s%nDescription:%n%b%n---END---' \
-            "$commit_range" > "$RUNNER_TEMP/release-commits-full.txt"
-          git log \
-            --format='commit %h%nTitle: %s%n---END---' \
-            "$commit_range" > "$RUNNER_TEMP/release-commits-title-only.txt"
-
-          commit_input="$RUNNER_TEMP/release-commits-full.txt"
-          if [[ "$(wc -c < "$commit_input")" -gt 24000 ]]; then
-            commit_input="$RUNNER_TEMP/release-commits-title-only.txt"
-          fi
-
-          node - "$commit_input" "$RUNNER_TEMP/foundry-summary-test.json" <<'NODE'
-          const fs = require('fs');
-          const [inputPath, outputPath] = process.argv.slice(2);
-          const commits = fs.readFileSync(inputPath, 'utf8').trim();
-          const payload = {
-            model: 'gpt-5.4-mini',
-            messages: [
-              {
-                role: 'system',
-                content: [
-                  'Write concise, user-facing release highlights for a desktop app.',
-                  'Focus only on product-visible changes: features, platform support, runtime behavior, visual assets, packaging outputs, and user-facing bug fixes.',
-                  'Do not mention project infrastructure, CI/CD, pipelines, GitHub Actions, internal refactors with no user-visible effect, dependency churn, or repository maintenance.',
-                  'If a refactor has no feature change, include it only when it affects product behavior, stability, or platform compatibility.',
-                  'Return Markdown with a "## Highlights" heading and 2-5 bullets. If there are no user-visible changes, say "No user-facing changes in this release."'
-                ].join(' ')
-              },
-              {
-                role: 'user',
-                content: `Generate release highlights from these commits:\n\n${commits}`
-              }
-            ],
-            max_completion_tokens: 500
-          };
-          fs.writeFileSync(outputPath, JSON.stringify(payload));
-          NODE
-
-          http_code="$(curl -sS \
-            -o "$RUNNER_TEMP/foundry-summary-test-response.json" \
-            -w "%{http_code}" \
-            -H "api-key: $AZURE_OPENAI_API_KEY" \
-            -H "Content-Type: application/json" \
-            -X POST \
-            "$AZURE_OPENAI_ENDPOINT/chat/completions" \
-            -d @"$RUNNER_TEMP/foundry-summary-test.json")"
-
-          if [[ "$http_code" != "200" ]]; then
-            echo "Microsoft Foundry release summary test failed with HTTP $http_code" >&2
-            cat "$RUNNER_TEMP/foundry-summary-test-response.json" >&2
-            exit 1
-          fi
-
-          node - <<'NODE'
-          const fs = require('fs');
-          const response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/foundry-summary-test-response.json', 'utf8'));
-          const content = response.choices?.[0]?.message?.content?.trim();
-          if (!content || !content.includes('## Highlights')) {
-            console.error('Unexpected Microsoft Foundry response:', JSON.stringify(response));
-            process.exit(1);
-          }
-          console.log('Microsoft Foundry release summary test passed.');
-          console.log(content);
-          NODE
 
       - name: Validate release version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -349,11 +260,157 @@ jobs:
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app.zip
 
-  release:
-    name: Publish GitHub Release
+  generate-release-notes:
+    name: Generate Release Notes
     needs:
       - build-windows-release
       - build-macos-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: Microsoft Foundry
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate GitHub release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api \
+            -X POST \
+            "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${GITHUB_REF_NAME}" \
+            > "$RUNNER_TEMP/github-generated-notes.json"
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/github-generated-notes.json', 'utf8'));
+          const body = response.body?.trim() || 'No generated changelog entries.';
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/github-generated-notes.md', body + '\n');
+          NODE
+
+      - name: Generate Foundry release highlights
+        shell: bash
+        env:
+          AZURE_OPENAI_ENDPOINT: https://linzhming27-9062-resource.openai.azure.com/openai/v1
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AZURE_OPENAI_API_KEY}" ]]; then
+            echo "AZURE_OPENAI_API_KEY secret is required for release highlight generation." >&2
+            exit 1
+          fi
+
+          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [[ -n "$previous_tag" ]]; then
+            git log \
+              --format='commit %h%nTitle: %s%nDescription:%n%b%n---END---' \
+              "$previous_tag..HEAD" > "$RUNNER_TEMP/release-commits-full.txt"
+            git log \
+              --format='commit %h%nTitle: %s%n---END---' \
+              "$previous_tag..HEAD" > "$RUNNER_TEMP/release-commits-title-only.txt"
+          else
+            git log \
+              -20 \
+              --format='commit %h%nTitle: %s%nDescription:%n%b%n---END---' \
+              HEAD > "$RUNNER_TEMP/release-commits-full.txt"
+            git log \
+              -20 \
+              --format='commit %h%nTitle: %s%n---END---' \
+              HEAD > "$RUNNER_TEMP/release-commits-title-only.txt"
+          fi
+
+          commit_input="$RUNNER_TEMP/release-commits-full.txt"
+          if [[ "$(wc -c < "$commit_input")" -gt 24000 ]]; then
+            commit_input="$RUNNER_TEMP/release-commits-title-only.txt"
+          fi
+
+          node - "$commit_input" "$RUNNER_TEMP/foundry-summary.json" <<'NODE'
+          const fs = require('fs');
+          const [inputPath, outputPath] = process.argv.slice(2);
+          const commits = fs.readFileSync(inputPath, 'utf8').trim() || 'No commits found.';
+          const payload = {
+            model: 'gpt-5.4-mini',
+            messages: [
+              {
+                role: 'system',
+                content: [
+                  'Write concise, user-facing release highlights for a desktop app.',
+                  'Focus only on product-visible changes: features, platform support, runtime behavior, visual assets, packaging outputs, and user-facing bug fixes.',
+                  'Do not mention project infrastructure, CI/CD, pipelines, GitHub Actions, internal refactors with no user-visible effect, dependency churn, or repository maintenance.',
+                  'If a refactor has no feature change, include it only when it affects product behavior, stability, or platform compatibility.',
+                  'Return Markdown with a "## Highlights" heading and 2-5 bullets. If there are no user-visible changes, say "No user-facing changes in this release."'
+                ].join(' ')
+              },
+              {
+                role: 'user',
+                content: `Generate release highlights from these commits:\n\n${commits}`
+              }
+            ],
+            max_completion_tokens: 500
+          };
+          fs.writeFileSync(outputPath, JSON.stringify(payload));
+          NODE
+
+          http_code="$(curl -sS \
+            -o "$RUNNER_TEMP/foundry-summary-response.json" \
+            -w "%{http_code}" \
+            -H "api-key: $AZURE_OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$AZURE_OPENAI_ENDPOINT/chat/completions" \
+            -d @"$RUNNER_TEMP/foundry-summary.json")"
+
+          if [[ "$http_code" != "200" ]]; then
+            echo "Microsoft Foundry release highlight generation failed with HTTP $http_code" >&2
+            cat "$RUNNER_TEMP/foundry-summary-response.json" >&2
+            exit 1
+          fi
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/foundry-summary-response.json', 'utf8'));
+          const content = response.choices?.[0]?.message?.content?.trim();
+          if (!content || !content.includes('## Highlights')) {
+            console.error('Unexpected Microsoft Foundry response:', JSON.stringify(response));
+            process.exit(1);
+          }
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/foundry-highlights.md', content + '\n');
+          console.log(content);
+          NODE
+
+      - name: Combine release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            cat "$RUNNER_TEMP/foundry-highlights.md"
+            echo
+            echo "## Generated Changes"
+            cat "$RUNNER_TEMP/github-generated-notes.md"
+          } > release-notes.md
+
+      - name: Upload release notes
+        uses: actions/upload-artifact@v6
+        with:
+          name: generated-release-notes
+          if-no-files-found: error
+          path: release-notes.md
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - generate-release-notes
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -370,6 +427,12 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Download release notes
+        uses: actions/download-artifact@v6
+        with:
+          name: generated-release-notes
+          path: .
+
       - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -383,12 +446,14 @@ jobs:
           fi
 
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "Desktop Pet ${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md
             gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
               release-assets/* \
               --title "Desktop Pet ${GITHUB_REF_NAME}" \
-              --generate-notes \
-              --notes "Windows and macOS builds for Desktop Pet ${GITHUB_REF_NAME}." \
+              --notes-file release-notes.md \
               "${RELEASE_FLAGS[@]}"
           fi
