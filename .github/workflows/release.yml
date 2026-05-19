@@ -371,6 +371,43 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve release notes range
+        id: release-notes-range
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_tag="${GITHUB_REF_NAME}"
+          current_commit="$(git rev-list -n 1 "$current_tag")"
+          stable_tag_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if [[ "$current_tag" =~ $stable_tag_pattern ]]; then
+            release_channel="stable"
+            previous_tag="$(git tag \
+              --merged "${current_commit}^" \
+              --sort=-version:refname \
+              | grep -E "$stable_tag_pattern" \
+              | head -n 1 \
+              || true)"
+          else
+            release_channel="prerelease"
+            previous_tag="$(git describe \
+              --tags \
+              --abbrev=0 \
+              "${current_commit}^" \
+              2>/dev/null \
+              || true)"
+          fi
+
+          echo "release_channel=${release_channel}" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=${previous_tag}" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$previous_tag" ]]; then
+            echo "Release notes range: ${previous_tag}..${current_tag} (${release_channel})"
+          else
+            echo "Release notes range: recent commits up to ${current_tag} (${release_channel})"
+          fi
+
       - name: Generate GitHub release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -378,10 +415,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          generate_notes_args=(-f tag_name="${GITHUB_REF_NAME}")
+          previous_tag="${{ steps.release-notes-range.outputs.previous_tag }}"
+          if [[ -n "$previous_tag" ]]; then
+            generate_notes_args+=(-f previous_tag_name="$previous_tag")
+          fi
+
           gh api \
             -X POST \
             "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f tag_name="${GITHUB_REF_NAME}" \
+            "${generate_notes_args[@]}" \
             > "$RUNNER_TEMP/github-generated-notes.json"
 
           node - <<'NODE'
@@ -404,7 +447,7 @@ jobs:
             exit 1
           fi
 
-          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          previous_tag="${{ steps.release-notes-range.outputs.previous_tag }}"
           if [[ -n "$previous_tag" ]]; then
             git log \
               --format='commit %h%nTitle: %s%nDescription:%n%b%n---END---' \
