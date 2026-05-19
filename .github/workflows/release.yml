@@ -440,14 +440,23 @@ jobs:
             RELEASE_FLAGS+=(--prerelease)
           fi
 
+          mapfile -d '' RELEASE_ASSETS < <(find release-assets -type f -print0 | sort -z)
+          if [[ "${#RELEASE_ASSETS[@]}" -eq 0 ]]; then
+            echo "No release assets found." >&2
+            exit 1
+          fi
+
+          printf 'Release assets:\n'
+          printf ' - %s\n' "${RELEASE_ASSETS[@]}"
+
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release edit "${GITHUB_REF_NAME}" \
               --title "Desktop Pet ${GITHUB_REF_NAME}" \
               --notes-file release-notes.md
-            gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
+            gh release upload "${GITHUB_REF_NAME}" "${RELEASE_ASSETS[@]}" --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
-              release-assets/* \
+              "${RELEASE_ASSETS[@]}" \
               --title "Desktop Pet ${GITHUB_REF_NAME}" \
               --notes-file release-notes.md \
               "${RELEASE_FLAGS[@]}"
