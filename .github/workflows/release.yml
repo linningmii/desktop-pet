@@ -358,8 +358,6 @@ jobs:
     needs: check
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    environment:
-      name: Microsoft Foundry
     env:
       LLM_RELEASE_NOTES_FULL_INPUT_MAX_TOKENS: 128000
       LLM_RELEASE_NOTES_APPROX_CHARS_PER_TOKEN: 4
