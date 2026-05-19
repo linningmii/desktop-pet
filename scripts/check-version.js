@@ -53,7 +53,7 @@ const cargoVersion = tomlValue(cargoPackage, 'version', cargoTomlFile);
 checks.push(['src-tauri/Cargo.toml package.version', cargoVersion]);
 
 const cargoLockFile = 'src-tauri/Cargo.lock';
-const cargoLock = fs.readFileSync(cargoLockFile, 'utf8');
+const cargoLock = fs.readFileSync(cargoLockFile, 'utf8').replace(/\r\n/g, '\n');
 const packageBlocks = cargoLock.split(/\n(?=\[\[package\]\]\n)/);
 const lockPackage = packageBlocks.find((block) => {
   const name = block.match(/^name\s*=\s*"([^"]+)"/m)?.[1];
