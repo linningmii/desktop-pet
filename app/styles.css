@@ -165,7 +165,7 @@ body {
   padding: var(--speech-padding, 7px 10px);
   box-sizing: border-box;
   border: 2px solid rgba(30, 38, 52, 0.72);
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.94);
   color: #1e2634;
   font: 700 var(--speech-font-size, 13px)/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -181,10 +181,12 @@ body {
   content: "";
   position: absolute;
   left: var(--speech-tail-left, 50%);
-  width: var(--speech-tail-size, 14px);
+  width: calc(var(--speech-tail-size, 14px) * 1.15);
   height: var(--speech-tail-size, 14px);
-  border-right: 2px solid rgba(30, 38, 52, 0.72);
-  border-bottom: 2px solid rgba(30, 38, 52, 0.72);
+  border: 2px solid rgba(30, 38, 52, 0.72);
+  border-top: 0;
+  border-left: 0;
+  border-radius: 0 0 999px 0;
   background: rgba(255, 255, 255, 0.94);
 }
 
@@ -213,13 +215,15 @@ body {
 }
 
 .speech-page.above .speech::after {
-  bottom: calc(var(--speech-tail-size, 14px) / -2 - 2px);
-  transform: translateX(-50%) rotate(45deg);
+  bottom: calc(var(--speech-tail-size, 14px) / -2 - 3px);
+  transform: translateX(-50%) rotate(34deg) skewX(-10deg);
+  transform-origin: 50% 0;
 }
 
 .speech-page.below .speech::after {
-  top: calc(var(--speech-tail-size, 14px) / -2 - 2px);
-  transform: translateX(-50%) rotate(225deg);
+  top: calc(var(--speech-tail-size, 14px) / -2 - 3px);
+  transform: translateX(-50%) rotate(214deg) skewX(-10deg);
+  transform-origin: 50% 100%;
 }
 
 .speech-page.talking .speech {
