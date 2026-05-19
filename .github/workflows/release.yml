@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  models: read
 
 jobs:
   check:
@@ -51,13 +50,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test GitHub Models release summary
+      - name: Test Microsoft Foundry release summary
         if: matrix.platform.name == 'macOS'
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AZURE_OPENAI_ENDPOINT: https://linzhming27-9062-resource.openai.azure.com/openai/v1
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
         run: |
           set -euo pipefail
+
+          if [[ -z "${AZURE_OPENAI_API_KEY}" ]]; then
+            echo "AZURE_OPENAI_API_KEY secret is required for the Microsoft Foundry release summary test." >&2
+            exit 1
+          fi
 
           previous_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
           if [[ -n "$previous_tag" ]]; then
@@ -78,12 +83,12 @@ jobs:
             commit_input="$RUNNER_TEMP/release-commits-title-only.txt"
           fi
 
-          node - "$commit_input" "$RUNNER_TEMP/github-models-summary-test.json" <<'NODE'
+          node - "$commit_input" "$RUNNER_TEMP/foundry-summary-test.json" <<'NODE'
           const fs = require('fs');
           const [inputPath, outputPath] = process.argv.slice(2);
           const commits = fs.readFileSync(inputPath, 'utf8').trim();
           const payload = {
-            model: 'openai/gpt-4.1',
+            model: 'gpt-5.4-mini',
             messages: [
               {
                 role: 'system',
@@ -100,36 +105,35 @@ jobs:
                 content: `Generate release highlights from these commits:\n\n${commits}`
               }
             ],
-            temperature: 0.2,
-            max_tokens: 500
+            max_completion_tokens: 500
           };
           fs.writeFileSync(outputPath, JSON.stringify(payload));
           NODE
 
           http_code="$(curl -sS \
-            -o "$RUNNER_TEMP/github-models-summary-test-response.json" \
+            -o "$RUNNER_TEMP/foundry-summary-test-response.json" \
             -w "%{http_code}" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "api-key: $AZURE_OPENAI_API_KEY" \
             -H "Content-Type: application/json" \
             -X POST \
-            https://models.github.ai/inference/chat/completions \
-            -d @"$RUNNER_TEMP/github-models-summary-test.json")"
+            "$AZURE_OPENAI_ENDPOINT/chat/completions" \
+            -d @"$RUNNER_TEMP/foundry-summary-test.json")"
 
           if [[ "$http_code" != "200" ]]; then
-            echo "GitHub Models release summary test failed with HTTP $http_code" >&2
-            cat "$RUNNER_TEMP/github-models-summary-test-response.json" >&2
+            echo "Microsoft Foundry release summary test failed with HTTP $http_code" >&2
+            cat "$RUNNER_TEMP/foundry-summary-test-response.json" >&2
             exit 1
           fi
 
           node - <<'NODE'
           const fs = require('fs');
-          const response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/github-models-summary-test-response.json', 'utf8'));
+          const response = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/foundry-summary-test-response.json', 'utf8'));
           const content = response.choices?.[0]?.message?.content?.trim();
           if (!content || !content.includes('## Highlights')) {
-            console.error('Unexpected GitHub Models API response:', JSON.stringify(response));
+            console.error('Unexpected Microsoft Foundry response:', JSON.stringify(response));
             process.exit(1);
           }
-          console.log('GitHub Models release summary test passed.');
+          console.log('Microsoft Foundry release summary test passed.');
           console.log(content);
           NODE
 
