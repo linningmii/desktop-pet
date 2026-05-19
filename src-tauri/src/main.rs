@@ -14,12 +14,14 @@ use tauri::{
     image::Image,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
-    Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size,
+    Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, WebviewUrl,
+    WebviewWindowBuilder,
 };
 
 const BASE_PET_SIZE: u32 = 150;
-const MIN_WINDOW_WIDTH: u32 = 220;
-const SPEECH_AREA_HEIGHT: u32 = 68;
+const SPEECH_WINDOW_WIDTH: f64 = 220.0;
+const SPEECH_WINDOW_HEIGHT: f64 = 76.0;
+const SPEECH_GAP: f64 = 4.0;
 const TICK_MS: u64 = 33;
 const EDGE_PADDING: f64 = 8.0;
 const PATROL_SPEED: f64 = 2.8;
@@ -130,6 +132,8 @@ struct RendererState {
     language: &'static str,
     #[serde(rename = "talkWhenStopped")]
     talk_when_stopped: bool,
+    #[serde(rename = "speechPlacement")]
+    speech_placement: &'static str,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -177,15 +181,15 @@ fn main() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             let window = app.get_webview_window("pet").expect("pet window exists");
-            window.set_ignore_cursor_events(true)?;
-            window.set_always_on_top(true)?;
-            let _ = window.set_visible_on_all_workspaces(true);
+            let speech_window = create_speech_window(app.handle())?;
+            configure_overlay_window(&window)?;
+            configure_overlay_window(&speech_window)?;
 
             shared.lock().expect("state lock").config = load_config_or_default(app.handle());
 
             create_tray(app.handle(), shared.clone())?;
-            initialize_window(app.handle(), &window, &shared)?;
-            start_motion_loop(app.handle().clone(), window, shared.clone());
+            initialize_window(app.handle(), &window, &speech_window, &shared)?;
+            start_motion_loop(app.handle().clone(), window, speech_window, shared.clone());
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -278,6 +282,7 @@ fn default_talk_when_stopped() -> bool {
 fn initialize_window(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
+    speech_window: &tauri::WebviewWindow,
     shared: &SharedState,
 ) -> tauri::Result<()> {
     let bounds = virtual_work_area(app).unwrap_or(Bounds {
@@ -291,11 +296,43 @@ fn initialize_window(
     state.pet.x = bounds.x + bounds.width - pet_size - 80.0;
     state.pet.y = bounds.y + bounds.height - pet_size - 60.0;
     state.patrol_y = state.pet.y;
-    window.set_size(Size::Physical(window_size(state.config.size)))?;
-    window.set_position(Position::Physical(window_position(&state)))?;
+    window.set_size(Size::Logical(pet_window_size(state.config.size)))?;
+    window.set_position(Position::Logical(pet_window_position(&state)))?;
+    let speech_layout = speech_layout(&state, bounds);
+    speech_window.set_size(Size::Logical(speech_window_size()))?;
+    speech_window.set_position(Position::Logical(speech_layout.position))?;
     window.show()?;
-    window.set_always_on_top(true)?;
+    speech_window.show()?;
     Ok(())
+}
+
+fn configure_overlay_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.set_ignore_cursor_events(true)?;
+    window.set_always_on_top(true)?;
+    let _ = window.set_visible_on_all_workspaces(true);
+    Ok(())
+}
+
+fn create_speech_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    if let Some(window) = app.get_webview_window("speech") {
+        return Ok(window);
+    }
+
+    WebviewWindowBuilder::new(app, "speech", WebviewUrl::App("speech.html".into()))
+        .title("Desktop Pet Speech")
+        .inner_size(SPEECH_WINDOW_WIDTH, SPEECH_WINDOW_HEIGHT)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .closable(false)
+        .visible(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focusable(false)
+        .build()
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -374,12 +411,21 @@ fn show_settings_error(title: String, description: String) {
         .show();
 }
 
-fn start_motion_loop(app: tauri::AppHandle, window: tauri::WebviewWindow, shared: SharedState) {
+fn start_motion_loop(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    speech_window: tauri::WebviewWindow,
+    shared: SharedState,
+) {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(TICK_MS));
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
         let cursor = app
             .cursor_position()
-            .map(|position| (position.x, position.y))
+            .map(|position| {
+                let logical = position.to_logical::<f64>(scale_factor);
+                (logical.x, logical.y)
+            })
             .unwrap_or((f64::INFINITY, f64::INFINITY));
         let bounds = virtual_work_area(&app).unwrap_or(Bounds {
             x: 0.0,
@@ -391,13 +437,18 @@ fn start_motion_loop(app: tauri::AppHandle, window: tauri::WebviewWindow, shared
         let renderer_state = {
             let mut state = shared.lock().expect("state lock");
             update_motion(&mut state, bounds, cursor);
-            let _ = window.set_size(Size::Physical(window_size(state.config.size)));
-            let _ = window.set_position(Position::Physical(window_position(&state)));
+            let speech_layout = speech_layout(&state, bounds);
+            let _ = window.set_size(Size::Logical(pet_window_size(state.config.size)));
+            let _ = window.set_position(Position::Logical(pet_window_position(&state)));
+            let _ = speech_window.set_size(Size::Logical(speech_window_size()));
+            let _ = speech_window.set_position(Position::Logical(speech_layout.position));
             let _ = window.set_always_on_top(true);
-            build_renderer_state(&state)
+            let _ = speech_window.set_always_on_top(true);
+            build_renderer_state(&state, speech_layout.placement)
         };
 
-        let _ = window.emit("pet-state", renderer_state);
+        let _ = window.emit("pet-state", renderer_state.clone());
+        let _ = speech_window.emit("pet-state", renderer_state);
     });
 }
 
@@ -523,7 +574,7 @@ fn update_motion(state: &mut AppState, bounds: Bounds, cursor: (f64, f64)) {
     state.was_escaping = is_escaping;
 }
 
-fn build_renderer_state(state: &AppState) -> RendererState {
+fn build_renderer_state(state: &AppState, speech_placement: &'static str) -> RendererState {
     RendererState {
         facing: state.pet.facing,
         moving: state.pet.moving,
@@ -540,6 +591,7 @@ fn build_renderer_state(state: &AppState) -> RendererState {
         speed: hypot(state.pet.vx, state.pet.vy),
         language: language_name(state.config.language),
         talk_when_stopped: state.config.talk_when_stopped,
+        speech_placement,
     }
 }
 
@@ -762,24 +814,62 @@ fn apply_size(app: &tauri::AppHandle, shared: &SharedState, next_size: SizeProfi
     drop(state);
 
     if let Some(window) = app.get_webview_window("pet") {
-        let _ = window.set_size(Size::Physical(window_size(next_size)));
+        let _ = window.set_size(Size::Logical(pet_window_size(next_size)));
     }
 }
 
-fn window_size(size: SizeProfile) -> PhysicalSize<u32> {
-    let pet_size = pet_size(size);
-    PhysicalSize {
-        width: pet_size.max(MIN_WINDOW_WIDTH),
-        height: pet_size + SPEECH_AREA_HEIGHT,
+fn pet_window_size(size: SizeProfile) -> LogicalSize<f64> {
+    let pet_size = pet_size(size) as f64;
+    LogicalSize {
+        width: pet_size,
+        height: pet_size,
     }
 }
 
-fn window_position(state: &AppState) -> PhysicalPosition<i32> {
+fn pet_window_position(state: &AppState) -> LogicalPosition<f64> {
+    LogicalPosition {
+        x: state.pet.x.round(),
+        y: state.pet.y.round(),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SpeechLayout {
+    position: LogicalPosition<f64>,
+    placement: &'static str,
+}
+
+fn speech_window_size() -> LogicalSize<f64> {
+    LogicalSize {
+        width: SPEECH_WINDOW_WIDTH,
+        height: SPEECH_WINDOW_HEIGHT,
+    }
+}
+
+fn speech_layout(state: &AppState, bounds: Bounds) -> SpeechLayout {
     let pet_size = pet_size(state.config.size) as f64;
-    let window_width = window_size(state.config.size).width as f64;
-    PhysicalPosition {
-        x: (state.pet.x - (window_width - pet_size) / 2.0).round() as i32,
-        y: (state.pet.y - SPEECH_AREA_HEIGHT as f64).round() as i32,
+    let preferred_x = state.pet.x + pet_size / 2.0 - SPEECH_WINDOW_WIDTH / 2.0;
+    let min_x = bounds.x + EDGE_PADDING;
+    let max_x = bounds.x + bounds.width - SPEECH_WINDOW_WIDTH - EDGE_PADDING;
+    let x = preferred_x.clamp(min_x, max_x);
+    let above_y = state.pet.y - SPEECH_WINDOW_HEIGHT - SPEECH_GAP;
+    let below_y = state.pet.y + pet_size + SPEECH_GAP;
+
+    let (y, placement) = if above_y >= bounds.y + EDGE_PADDING {
+        (above_y, "above")
+    } else {
+        (
+            below_y.min(bounds.y + bounds.height - SPEECH_WINDOW_HEIGHT - EDGE_PADDING),
+            "below",
+        )
+    };
+
+    SpeechLayout {
+        position: LogicalPosition {
+            x: x.round(),
+            y: y.round(),
+        },
+        placement,
     }
 }
 
@@ -791,18 +881,29 @@ fn refresh_tray_menu(app: &tauri::AppHandle, shared: &SharedState) {
 
 fn virtual_work_area(app: &tauri::AppHandle) -> Option<Bounds> {
     let monitors = app.available_monitors().ok()?;
-    let mut areas = monitors.iter().map(|monitor| monitor.work_area());
+    let mut areas = monitors.iter().map(|monitor| {
+        let scale_factor = monitor.scale_factor();
+        let area = monitor.work_area();
+        let position = area.position.to_logical::<f64>(scale_factor);
+        let size = area.size.to_logical::<f64>(scale_factor);
+        Bounds {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+        }
+    });
     let first = areas.next()?;
-    let mut min_x = first.position.x as f64;
-    let mut min_y = first.position.y as f64;
-    let mut max_x = first.position.x as f64 + first.size.width as f64;
-    let mut max_y = first.position.y as f64 + first.size.height as f64;
+    let mut min_x = first.x;
+    let mut min_y = first.y;
+    let mut max_x = first.x + first.width;
+    let mut max_y = first.y + first.height;
 
     for area in areas {
-        min_x = min_x.min(area.position.x as f64);
-        min_y = min_y.min(area.position.y as f64);
-        max_x = max_x.max(area.position.x as f64 + area.size.width as f64);
-        max_y = max_y.max(area.position.y as f64 + area.size.height as f64);
+        min_x = min_x.min(area.x);
+        min_y = min_y.min(area.y);
+        max_x = max_x.max(area.x + area.width);
+        max_y = max_y.max(area.y + area.height);
     }
 
     Some(Bounds {

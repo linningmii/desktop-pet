@@ -7,7 +7,7 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
-    "check": "node --check app/pet.js && cargo check --manifest-path src-tauri/Cargo.toml",
+    "check": "node --check app/pet.js && node --check app/speech.js && cargo check --manifest-path src-tauri/Cargo.toml",
     "check:version": "node scripts/check-version.js"
   },
   "devDependencies": {
