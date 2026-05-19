@@ -312,7 +312,7 @@ fn initialize_window(
 fn configure_overlay_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.set_ignore_cursor_events(true)?;
     window.set_always_on_top(true)?;
-    let _ = window.set_visible_on_all_workspaces(true);
+    let _ = window.set_visible_on_all_workspaces(false);
     Ok(())
 }
 
@@ -447,6 +447,8 @@ fn start_motion_loop(
             let _ = speech_window.set_position(Position::Logical(speech_layout.position));
             let _ = window.set_always_on_top(true);
             let _ = speech_window.set_always_on_top(true);
+            let _ = window.set_visible_on_all_workspaces(false);
+            let _ = speech_window.set_visible_on_all_workspaces(false);
             build_renderer_state(&state, speech_layout.placement, speech_layout.tail_percent)
         };
 
